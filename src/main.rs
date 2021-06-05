@@ -5,7 +5,7 @@ use structopt::StructOpt;
 enum Opt {
     Get(weih::cli::get::GetOpt),
     Run,
-    Show,
+    Show(weih::cli::show::ShowOpt),
 }
 
 #[tokio::main]
@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
     match opt {
         Opt::Get(o) => o.execute().await?,
         Opt::Run => todo!(),
-        Opt::Show => todo!(),
+        Opt::Show(o) => o.execute().await?,
     }
     Ok(())
 }

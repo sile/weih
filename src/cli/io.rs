@@ -11,3 +11,9 @@ where
     }
     Ok(())
 }
+
+pub fn print_json(item: &impl serde::Serialize) -> anyhow::Result<()> {
+    serde_json::to_writer_pretty(std::io::stdout().lock(), item)?;
+    println!();
+    Ok(())
+}
