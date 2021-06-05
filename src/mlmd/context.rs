@@ -41,7 +41,7 @@ impl std::str::FromStr for ContextIdOrName {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> anyhow::Result<Self> {
-        let mut tokens = s.splitn(1, '@');
+        let mut tokens = s.splitn(2, '@');
         let id_or_context_name = tokens.next().expect("unreachable");
         if let Some(type_name) = tokens.next() {
             Ok(Self::Name {

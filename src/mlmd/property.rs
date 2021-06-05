@@ -17,3 +17,23 @@ impl From<mlmd::metadata::PropertyType> for PropertyType {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum PropertyValue {
+    Int(i32),
+    Double(f64),
+    String(String),
+}
+
+impl From<mlmd::metadata::PropertyValue> for PropertyValue {
+    fn from(x: mlmd::metadata::PropertyValue) -> Self {
+        use mlmd::metadata::PropertyValue::*;
+
+        match x {
+            Int(x) => Self::Int(x),
+            Double(x) => Self::Double(x),
+            String(x) => Self::String(x),
+        }
+    }
+}
