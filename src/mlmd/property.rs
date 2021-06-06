@@ -18,6 +18,16 @@ impl From<mlmd::metadata::PropertyType> for PropertyType {
     }
 }
 
+impl std::fmt::Display for PropertyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Int => write!(f, "INT"),
+            Self::Double => write!(f, "DOUBLE"),
+            Self::String => write!(f, "STRING"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum PropertyValue {

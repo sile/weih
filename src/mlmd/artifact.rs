@@ -82,6 +82,7 @@ pub struct ArtifactDetail {
     pub properties: BTreeMap<String, PropertyValue>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub custom_properties: BTreeMap<String, PropertyValue>,
+    // TODO: context, recent_events
 }
 
 impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for ArtifactDetail {
