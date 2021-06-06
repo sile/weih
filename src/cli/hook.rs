@@ -2,7 +2,7 @@ use crate::cli;
 use crate::hook::ItemType;
 use std::path::PathBuf;
 
-#[derive(Debug, structopt::StructOpt, serde::Serialize)]
+#[derive(Debug, structopt::StructOpt, serde::Serialize, serde::Deserialize)]
 #[structopt(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct HookOpt {

@@ -1,3 +1,4 @@
+use crate::hook::HookRunner;
 use crate::mlmd::artifact::{
     ArtifactDetail, ArtifactOrderByField, ArtifactSummary, ArtifactTypeDetail, ArtifactTypeSummary,
 };
@@ -8,6 +9,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct Config {
     mlmd_db: Arc<String>,
+    hook_runner: Arc<HookRunner>,
 }
 
 impl Config {
@@ -22,9 +24,11 @@ impl Config {
 pub async fn http_server_run(
     bind_addr: std::net::SocketAddr,
     mlmd_db: String,
+    hook_runner: HookRunner,
 ) -> anyhow::Result<()> {
     let config = Config {
         mlmd_db: Arc::new(mlmd_db.to_owned()),
+        hook_runner: Arc::new(hook_runner),
     };
     HttpServer::new(move || {
         App::new()
@@ -386,6 +390,10 @@ async fn get_artifact(
     }
 
     let artifact = ArtifactDetail::from((types[0].clone(), artifacts[0].clone()));
+    let artifact = config
+        .hook_runner
+        .run_artifact_detail_hook(artifact)
+        .await?;
 
     let mut md = "# Artifact\n".to_string();
 

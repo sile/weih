@@ -34,6 +34,18 @@ pub enum PropertyValue {
     Int(i32),
     Double(f64),
     String(String),
+    Link { value: Box<Self>, url: String },
+}
+
+impl PropertyValue {
+    pub fn add_link<F>(&mut self, make_url: F)
+    where
+        F: FnOnce(&Self) -> String,
+    {
+        let url = make_url(self);
+        let value = Box::new(self.clone());
+        *self = Self::Link { value, url };
+    }
 }
 
 impl From<mlmd::metadata::PropertyValue> for PropertyValue {
@@ -54,6 +66,7 @@ impl std::fmt::Display for PropertyValue {
             Self::Int(x) => write!(f, "{}", x),
             Self::Double(x) => write!(f, "{}", x),
             Self::String(x) => write!(f, "{}", x),
+            Self::Link { value, url } => write!(f, "[{}]({})", value, url),
         }
     }
 }
