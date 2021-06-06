@@ -417,6 +417,7 @@ async fn get_artifact(
             md += &format!("  - **{}**: {}\n", k, v);
         }
     }
+    // TODO: Add count
     md += &format!("- [**Contexts**](/contexts/?artifact={})\n", artifact.id);
     md += &format!("- [**Events**](/events/?artifact={})\n", artifact.id);
 
