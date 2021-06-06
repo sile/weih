@@ -121,6 +121,18 @@ pub enum ArtifactState {
     Deleted,
 }
 
+impl std::fmt::Display for ArtifactState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Unknown => write!(f, "UNKNOWN"),
+            Self::Pending => write!(f, "PENDING"),
+            Self::Live => write!(f, "Live"),
+            Self::MarkedForDeletion => write!(f, "MARKED_FOR_DELETION"),
+            Self::Deleted => write!(f, "DELETED"),
+        }
+    }
+}
+
 impl From<mlmd::metadata::ArtifactState> for ArtifactState {
     fn from(x: mlmd::metadata::ArtifactState) -> Self {
         use mlmd::metadata::ArtifactState::*;
@@ -135,15 +147,23 @@ impl From<mlmd::metadata::ArtifactState> for ArtifactState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ArtifactOrderByField {
+    Id,
     Name,
     CreateTime,
     UpdateTime,
 }
 
 impl ArtifactOrderByField {
-    pub const POSSIBLE_VALUES: &'static [&'static str] = &["name", "ctime", "utime"];
+    pub const POSSIBLE_VALUES: &'static [&'static str] = &["id", "name", "ctime", "utime"];
+}
+
+impl Default for ArtifactOrderByField {
+    fn default() -> Self {
+        Self::Id
+    }
 }
 
 impl std::str::FromStr for ArtifactOrderByField {
@@ -151,6 +171,7 @@ impl std::str::FromStr for ArtifactOrderByField {
 
     fn from_str(s: &str) -> anyhow::Result<Self> {
         match s {
+            "id" => Ok(Self::Id),
             "name" => Ok(Self::Name),
             "ctime" => Ok(Self::CreateTime),
             "utime" => Ok(Self::UpdateTime),
@@ -162,6 +183,7 @@ impl std::str::FromStr for ArtifactOrderByField {
 impl From<ArtifactOrderByField> for mlmd::requests::ArtifactOrderByField {
     fn from(x: ArtifactOrderByField) -> Self {
         match x {
+            ArtifactOrderByField::Id => Self::Id,
             ArtifactOrderByField::Name => Self::Name,
             ArtifactOrderByField::CreateTime => Self::CreateTime,
             ArtifactOrderByField::UpdateTime => Self::UpdateTime,
