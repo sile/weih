@@ -47,3 +47,13 @@ impl From<mlmd::metadata::PropertyValue> for PropertyValue {
         }
     }
 }
+
+impl std::fmt::Display for PropertyValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Int(x) => write!(f, "{}", x),
+            Self::Double(x) => write!(f, "{}", x),
+            Self::String(x) => write!(f, "{}", x),
+        }
+    }
+}

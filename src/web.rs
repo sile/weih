@@ -1,5 +1,5 @@
 use crate::mlmd::artifact::{
-    ArtifactOrderByField, ArtifactSummary, ArtifactTypeDetail, ArtifactTypeSummary,
+    ArtifactDetail, ArtifactOrderByField, ArtifactSummary, ArtifactTypeDetail, ArtifactTypeSummary,
 };
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use std::collections::{HashMap, HashSet};
@@ -33,6 +33,7 @@ pub async fn http_server_run(
             .service(web::resource("/artifact_types/").route(web::get().to(get_artifact_types)))
             .service(web::resource("/artifact_types/{id}").route(web::get().to(get_artifact_type)))
             .service(web::resource("/artifacts/").route(web::get().to(get_artifacts)))
+            .service(web::resource("/artifacts/{id}").route(web::get().to(get_artifact)))
     })
     .bind(bind_addr)?
     .run()
@@ -261,17 +262,22 @@ async fn get_artifacts(
     if query.offset() != 0 {
         md += &format!(" [<<]({})", query.prev().to_url());
     } else {
-        md += "<<";
+        md += " <<";
     }
+    md += &format!(
+        " {}~{} ",
+        query.offset() + 1,
+        query.offset() + artifacts.len()
+    );
     if artifacts.len() == query.limit() {
-        md += &format!(" [>>]({})", query.next().to_url());
+        md += &format!("[>>]({})", query.next().to_url());
     } else {
         md += ">>";
     }
 
     md += "\n";
     md += &format!(
-        "| id{}{} | type | name{}{} | state | create-time{}{} | update-time{}{} |\n",
+        "| id{}{} | type | name{}{} | state | update-time{}{} |\n",
         if query.order_by == ArtifactOrderByField::Id && query.asc {
             format!("<")
         } else {
@@ -304,26 +310,6 @@ async fn get_artifacts(
                 query.order_by(ArtifactOrderByField::Name, false).to_url()
             )
         },
-        if query.order_by == ArtifactOrderByField::CreateTime && query.asc {
-            format!("<")
-        } else {
-            format!(
-                "[<]({})",
-                query
-                    .order_by(ArtifactOrderByField::CreateTime, true)
-                    .to_url()
-            )
-        },
-        if query.order_by == ArtifactOrderByField::CreateTime && !query.asc {
-            format!(">")
-        } else {
-            format!(
-                "[>]({})",
-                query
-                    .order_by(ArtifactOrderByField::CreateTime, false)
-                    .to_url()
-            )
-        },
         if query.order_by == ArtifactOrderByField::UpdateTime && query.asc {
             format!("<")
         } else {
@@ -345,22 +331,94 @@ async fn get_artifacts(
             )
         }
     );
-    md += "|------|------|--------|-------|---------------|---------------|\n";
+    md += "|------|------|--------|-------|---------------|\n";
 
     for artifact in artifacts {
         let a = ArtifactSummary::from((artifact_types[&artifact.type_id].clone(), artifact));
         md += &format!(
-            "| [{}]({}) | [{}]({}) | {} | {} | {} | {} |\n",
+            "| [{}]({}) | [{}]({}) | {} | {} | {} |\n",
             a.id,
             format!("/artifacts/{}", a.id),
             a.type_name,
             query.filter_type(&a.type_name).to_url(),
             a.name.as_ref().map_or("", |x| x.as_str()),
             a.state,
-            a.ctime,
             a.utime
         );
     }
+
+    Ok(HttpResponse::Ok()
+        .content_type("text/html")
+        .body(md_to_html(&md)))
+}
+
+async fn get_artifact(
+    config: web::Data<Config>,
+    path: web::Path<(i32,)>,
+) -> actix_web::Result<HttpResponse> {
+    let id = path.0;
+    let mut store = config.connect_metadata_store().await?;
+
+    let artifacts = store
+        .get_artifacts()
+        .id(mlmd::metadata::ArtifactId::new(id))
+        .execute()
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+    if artifacts.is_empty() {
+        return Err(actix_web::error::ErrorNotFound(format!(
+            "no such artifact: {}",
+            id
+        )));
+    }
+
+    let types = store
+        .get_artifact_types()
+        .id(artifacts[0].type_id)
+        .execute()
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+    if artifacts.is_empty() {
+        return Err(actix_web::error::ErrorInternalServerError(format!(
+            "no such artifact tyep: {}",
+            artifacts[0].type_id.get(),
+        )));
+    }
+
+    let artifact = ArtifactDetail::from((types[0].clone(), artifacts[0].clone()));
+
+    let mut md = "# Artifact\n".to_string();
+
+    md += &format!("- **ID**: {}\n", artifact.id);
+    md += &format!(
+        "- **Type**: [{}](/artifact_types/{})\n",
+        artifact.type_name,
+        types[0].id.get()
+    );
+    if let Some(x) = &artifact.name {
+        md += &format!("- **Name**: {}\n", x);
+    }
+    if let Some(x) = &artifact.uri {
+        md += &format!("- **URI**: {}\n", x);
+    }
+    md += &format!("- **State**: {}\n", artifact.state);
+    md += &format!("- **Create Time**: {}\n", artifact.ctime);
+    md += &format!("- **Update Time**: {}\n", artifact.utime);
+
+    if !artifact.properties.is_empty() {
+        md += &format!("- **Properties**:\n");
+        for (k, v) in &artifact.properties {
+            md += &format!("  - **{}**: {}\n", k, v);
+        }
+    }
+    if !artifact.custom_properties.is_empty() {
+        md += &format!("- **Custom Properties**:\n");
+        for (k, v) in &artifact.custom_properties {
+            md += &format!("  - **{}**: {}\n", k, v);
+        }
+    }
+    md += &format!("- [**Contexts**](/contexts/?artifact={})\n", artifact.id);
+    md += &format!("- [**Events**](/events/?artifact={})\n", artifact.id);
 
     Ok(HttpResponse::Ok()
         .content_type("text/html")
