@@ -1069,9 +1069,9 @@ dependencies = [
 
 [[package]]
 name = "mlmd"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a94eccc564fa8ae9b41366a7430b9df103d679997a7023d60a529e6aa074278a"
+checksum = "659dd197ed4766b27f6dc4a6e75b908f94f9514ad7cfc742b9d2bd03f5fdcaa4"
 dependencies = [
  "anyhow",
  "futures",
@@ -1848,6 +1848,7 @@ version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8199b421ecf3493ee9ef3e7bc90c904844cfb2ea7ea2f57347a93f52bfd3e057"
 dependencies = [
+ "actix-rt",
  "native-tls",
  "once_cell",
  "tokio",
@@ -2115,19 +2116,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "tokio-macros",
  "winapi",
-]
-
-[[package]]
-name = "tokio-macros"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c49e3df43841dafb86046472506755d8501c5615673955f6aa17181125d13c37"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -2373,7 +2362,6 @@ dependencies = [
  "serde",
  "serde_json",
  "structopt",
- "tokio",
 ]
 
 [[package]]
