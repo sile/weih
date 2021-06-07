@@ -50,7 +50,7 @@ pub struct ArtifactSummary {
     pub type_name: String,
     pub state: ArtifactState,
     pub ctime: DateTime,
-    pub utime: DateTime,
+    pub mtime: DateTime,
 }
 
 impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for ArtifactSummary {
@@ -61,7 +61,7 @@ impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for Artifact
             name: x.1.name,
             state: x.1.state.into(),
             ctime: crate::time::duration_to_datetime(x.1.create_time_since_epoch),
-            utime: crate::time::duration_to_datetime(x.1.last_update_time_since_epoch),
+            mtime: crate::time::duration_to_datetime(x.1.last_update_time_since_epoch),
         }
     }
 }
@@ -77,7 +77,7 @@ pub struct ArtifactDetail {
     pub uri: Option<String>,
     pub state: ArtifactState,
     pub ctime: DateTime,
-    pub utime: DateTime,
+    pub mtime: DateTime,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub properties: BTreeMap<String, PropertyValue>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -94,7 +94,7 @@ impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for Artifact
             state: x.1.state.into(),
             uri: x.1.uri,
             ctime: crate::time::duration_to_datetime(x.1.create_time_since_epoch),
-            utime: crate::time::duration_to_datetime(x.1.last_update_time_since_epoch),
+            mtime: crate::time::duration_to_datetime(x.1.last_update_time_since_epoch),
             properties: x
                 .1
                 .properties
@@ -157,7 +157,7 @@ pub enum ArtifactOrderByField {
 }
 
 impl ArtifactOrderByField {
-    pub const POSSIBLE_VALUES: &'static [&'static str] = &["id", "name", "ctime", "utime"];
+    pub const POSSIBLE_VALUES: &'static [&'static str] = &["id", "name", "ctime", "mtime"];
 }
 
 impl Default for ArtifactOrderByField {
@@ -174,7 +174,7 @@ impl std::str::FromStr for ArtifactOrderByField {
             "id" => Ok(Self::Id),
             "name" => Ok(Self::Name),
             "ctime" => Ok(Self::CreateTime),
-            "utime" => Ok(Self::UpdateTime),
+            "mtime" => Ok(Self::UpdateTime),
             _ => anyhow::bail!("invalid value: {:?}", s),
         }
     }

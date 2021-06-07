@@ -38,12 +38,12 @@ pub async fn http_server_run(
             .service(self::handlers::index::get_index)
             .service(self::handlers::artifact_types::get_artifact_type_summaries)
             .service(self::handlers::artifact_types::get_artifact_type_detail)
-            .service(web::resource("/artifacts/").route(web::get().to(get_artifacts)))
-            .service(web::resource("/artifacts/{id}").route(web::get().to(get_artifact)))
             .service(self::handlers::execution_types::get_execution_type_summaries)
             .service(self::handlers::execution_types::get_execution_type_detail)
             .service(self::handlers::context_types::get_context_type_summaries)
             .service(self::handlers::context_types::get_context_type_detail)
+            .service(web::resource("/artifacts/").route(web::get().to(get_artifacts)))
+            .service(web::resource("/artifacts/{id}").route(web::get().to(get_artifact)))
     })
     .bind(bind_addr)?
     .run()
@@ -56,6 +56,8 @@ pub async fn http_server_run(
 pub struct GetArtifactsQuery {
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,7 +90,11 @@ impl GetArtifactsQuery {
             request = request.offset(n);
         }
         if let Some(n) = &self.type_name {
-            request = request.ty(n);
+            if let Some(m) = &self.name {
+                request = request.type_and_name(n, m);
+            } else {
+                request = request.ty(n);
+            }
         }
         request = request.order_by(self.order_by.into(), self.asc);
 
@@ -263,7 +269,7 @@ async fn get_artifacts(
             query.filter_type(&a.type_name).to_url(),
             a.name.as_ref().map_or("", |x| x.as_str()),
             a.state,
-            a.utime
+            a.mtime
         );
     }
 
@@ -327,7 +333,7 @@ async fn get_artifact(
     }
     md += &format!("- **State**: {}\n", artifact.state);
     md += &format!("- **Create Time**: {}\n", artifact.ctime);
-    md += &format!("- **Update Time**: {}\n", artifact.utime);
+    md += &format!("- **Update Time**: {}\n", artifact.mtime);
 
     if !artifact.properties.is_empty() {
         md += &format!("- **Properties**:\n");
