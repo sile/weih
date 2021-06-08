@@ -84,6 +84,28 @@ impl HookRunner {
             ))),
         }
     }
+
+    pub async fn run_artifact_content_hook(
+        &self,
+        artifact: crate::mlmd::artifact::ArtifactDetail,
+        content_name: &str,
+    ) -> actix_web::error::Result<crate::hook::GeneralOutput> {
+        let input = HookInput::ArtifactContent(ArtifactContentHookInput {
+            artifact: artifact.clone(),
+            content_name: content_name.to_owned(),
+        });
+        match self.run(input).await? {
+            None => Err(actix_web::error::ErrorNotFound(format!(
+                "no such content: {:?}",
+                content_name
+            ))),
+            Some(HookOutput::ArtifactContent(o)) => Ok(o),
+            Some(o) => Err(actix_web::error::ErrorInternalServerError(format!(
+                "unexpected hook result: {:?}",
+                o
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -128,33 +150,32 @@ impl HookCommand {
 pub enum HookInput {
     ArtifactSummary,
     ArtifactDetail(ArtifactDetailHookInput),
-    ArtifactContent,
-    ArtifactProperty,
+    ArtifactContent(ArtifactContentHookInput),
     ExecutionSummary,
     ExecutionDetail,
-    ExecutionProperty,
+    ExecutionContent,
     ContextSummary,
     ContextDetail,
-    ContextProperty,
+    ContextContent,
 }
 
 impl HookInput {
     pub fn item_type(&self) -> ItemType {
         match self {
-            Self::ArtifactSummary
-            | Self::ArtifactDetail(_)
-            | Self::ArtifactContent
-            | Self::ArtifactProperty => ItemType::Artifact,
-            Self::ExecutionSummary | Self::ExecutionDetail | Self::ExecutionProperty => {
+            Self::ArtifactSummary | Self::ArtifactDetail(_) | Self::ArtifactContent(_) => {
+                ItemType::Artifact
+            }
+            Self::ExecutionSummary | Self::ExecutionDetail | Self::ExecutionContent => {
                 ItemType::Execution
             }
-            Self::ContextSummary | Self::ContextDetail | Self::ContextProperty => ItemType::Context,
+            Self::ContextSummary | Self::ContextDetail | Self::ContextContent => ItemType::Context,
         }
     }
 
     pub fn type_name(&self) -> &str {
         match self {
             Self::ArtifactDetail(x) => &x.artifact.type_name,
+            Self::ArtifactContent(x) => &x.artifact.type_name,
             _ => todo!(),
         }
     }
@@ -168,21 +189,35 @@ pub struct ArtifactDetailHookInput {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub struct ArtifactContentHookInput {
+    pub artifact: crate::mlmd::artifact::ArtifactDetail,
+    pub content_name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum HookOutput {
     ArtifactSummary,
     ArtifactDetail(ArtifactDetailHookOutput),
-    ArtifactContent,
-    ArtifactProperty,
+    ArtifactContent(GeneralOutput),
     ExecutionSummary,
     ExecutionDetail,
-    ExecutionProperty,
+    ExecutionContent,
     ContextSummary,
     ContextDetail,
-    ContextProperty,
+    ContextContent,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactDetailHookOutput {
     pub artifact: crate::mlmd::artifact::ArtifactDetail,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GeneralOutput {
+    Json(String),
+    Markdown(String),
+    Html(String),
 }
