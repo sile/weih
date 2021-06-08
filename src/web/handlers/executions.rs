@@ -1,11 +1,11 @@
 use crate::hook::GeneralOutput;
-use crate::mlmd::artifact::{Artifact, ArtifactOrderByField};
+use crate::mlmd::execution::{Execution, ExecutionOrderByField};
 use crate::web::{response, Config};
 use actix_web::{get, web, HttpResponse};
 use std::collections::{HashMap, HashSet};
 
-#[get("/artifacts/{id}/contents/{name}")]
-async fn get_artifact_content(
+#[get("/executions/{id}/contents/{name}")]
+async fn get_execution_content(
     config: web::Data<Config>,
     path: web::Path<(i32, String)>,
 ) -> actix_web::Result<HttpResponse> {
@@ -13,36 +13,36 @@ async fn get_artifact_content(
 
     let mut store = config.connect_metadata_store().await?;
 
-    let artifacts = store
-        .get_artifacts()
-        .id(mlmd::metadata::ArtifactId::new(id))
+    let executions = store
+        .get_executions()
+        .id(mlmd::metadata::ExecutionId::new(id))
         .execute()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
-    if artifacts.is_empty() {
+    if executions.is_empty() {
         return Err(actix_web::error::ErrorNotFound(format!(
-            "no such artifact: {}",
+            "no such execution: {}",
             id
         )));
     }
 
     let types = store
-        .get_artifact_types()
-        .id(artifacts[0].type_id)
+        .get_execution_types()
+        .id(executions[0].type_id)
         .execute()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
-    if artifacts.is_empty() {
+    if executions.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such artifact tyep: {}",
-            artifacts[0].type_id.get(),
+            "no such execution tyep: {}",
+            executions[0].type_id.get(),
         )));
     }
-    let artifact = Artifact::from((types[0].clone(), artifacts[0].clone()));
+    let execution = Execution::from((types[0].clone(), executions[0].clone()));
 
     let output = config
         .hook_runner
-        .run_artifact_content_hook(artifact, &content_name)
+        .run_execution_content_hook(execution, &content_name)
         .await?;
 
     match output {
@@ -54,7 +54,7 @@ async fn get_artifact_content(
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct GetArtifactsQuery {
+pub struct GetExecutionsQuery {
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,24 +66,24 @@ pub struct GetArtifactsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<usize>,
     #[serde(default)]
-    pub order_by: ArtifactOrderByField,
+    pub order_by: ExecutionOrderByField,
     #[serde(default)]
     pub asc: bool,
 }
 
-impl GetArtifactsQuery {
+impl GetExecutionsQuery {
     // TODO
-    async fn get_artifacts(
+    async fn get_executions(
         &self,
         store: &mut mlmd::MetadataStore,
-    ) -> anyhow::Result<Vec<mlmd::metadata::Artifact>> {
+    ) -> anyhow::Result<Vec<mlmd::metadata::Execution>> {
         let context_id = if let Some(context) = self.context {
             Some(mlmd::metadata::ContextId::new(context))
         } else {
             None
         };
 
-        let mut request = store.get_artifacts().limit(self.limit.unwrap_or(100));
+        let mut request = store.get_executions().limit(self.limit.unwrap_or(100));
         if let Some(c) = context_id {
             request = request.context(c)
         }
@@ -102,15 +102,15 @@ impl GetArtifactsQuery {
         Ok(request.execute().await?)
     }
 
-    async fn get_artifact_types(
+    async fn get_execution_types(
         &self,
         store: &mut mlmd::MetadataStore,
-        artifacts: &[mlmd::metadata::Artifact],
-    ) -> anyhow::Result<HashMap<mlmd::metadata::TypeId, mlmd::metadata::ArtifactType>> {
-        let artifact_type_ids = artifacts.iter().map(|x| x.type_id).collect::<HashSet<_>>();
+        executions: &[mlmd::metadata::Execution],
+    ) -> anyhow::Result<HashMap<mlmd::metadata::TypeId, mlmd::metadata::ExecutionType>> {
+        let execution_type_ids = executions.iter().map(|x| x.type_id).collect::<HashSet<_>>();
         Ok(store
-            .get_artifact_types()
-            .ids(artifact_type_ids.into_iter())
+            .get_execution_types()
+            .ids(execution_type_ids.into_iter())
             .execute()
             .await?
             .into_iter()
@@ -141,7 +141,7 @@ impl GetArtifactsQuery {
         this
     }
 
-    fn order_by(&self, field: ArtifactOrderByField, asc: bool) -> Self {
+    fn order_by(&self, field: ExecutionOrderByField, asc: bool) -> Self {
         let mut this = self.clone();
         this.order_by = field;
         this.asc = asc;
@@ -157,7 +157,7 @@ impl GetArtifactsQuery {
             .into_iter()
             .map(|(k, v)| format!("{}={}", k, v.to_string().trim_matches('"')))
             .collect::<Vec<_>>();
-        format!("/artifacts/?{}", qs.join("&"))
+        format!("/executions/?{}", qs.join("&"))
     }
 
     fn offset(&self) -> usize {
@@ -169,23 +169,23 @@ impl GetArtifactsQuery {
     }
 }
 
-#[get("/artifacts/")]
-pub async fn get_artifacts(
+#[get("/executions/")]
+pub async fn get_executions(
     config: web::Data<Config>,
-    query: web::Query<GetArtifactsQuery>,
+    query: web::Query<GetExecutionsQuery>,
 ) -> actix_web::Result<HttpResponse> {
     let mut store = config.connect_metadata_store().await?;
 
-    let artifacts = query
-        .get_artifacts(&mut store)
+    let executions = query
+        .get_executions(&mut store)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
-    let artifact_types = query
-        .get_artifact_types(&mut store, &artifacts)
+    let execution_types = query
+        .get_execution_types(&mut store, &executions)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
-    let mut md = "# Artifacts\n".to_string();
+    let mut md = "# Executions\n".to_string();
 
     if query.offset() != 0 {
         md += &format!(" [<<]({})", query.prev().to_url());
@@ -195,9 +195,9 @@ pub async fn get_artifacts(
     md += &format!(
         " {}~{} ",
         query.offset() + 1,
-        query.offset() + artifacts.len()
+        query.offset() + executions.len()
     );
-    if artifacts.len() == query.limit() {
+    if executions.len() == query.limit() {
         md += &format!("[>>]({})", query.next().to_url());
     } else {
         md += ">>";
@@ -206,74 +206,74 @@ pub async fn get_artifacts(
     md += "\n";
     md += &format!(
         "| id{}{} | type | name{}{} | state | update-time{}{} | summary |\n",
-        if query.order_by == ArtifactOrderByField::Id && query.asc {
+        if query.order_by == ExecutionOrderByField::Id && query.asc {
             format!("<")
         } else {
             format!(
                 "[<]({})",
-                query.order_by(ArtifactOrderByField::Id, true).to_url()
+                query.order_by(ExecutionOrderByField::Id, true).to_url()
             )
         },
-        if query.order_by == ArtifactOrderByField::Id && !query.asc {
+        if query.order_by == ExecutionOrderByField::Id && !query.asc {
             format!(">")
         } else {
             format!(
                 "[>]({})",
-                query.order_by(ArtifactOrderByField::Id, false).to_url()
+                query.order_by(ExecutionOrderByField::Id, false).to_url()
             )
         },
-        if query.order_by == ArtifactOrderByField::Name && query.asc {
+        if query.order_by == ExecutionOrderByField::Name && query.asc {
             format!("<")
         } else {
             format!(
                 "[<]({})",
-                query.order_by(ArtifactOrderByField::Name, true).to_url()
+                query.order_by(ExecutionOrderByField::Name, true).to_url()
             )
         },
-        if query.order_by == ArtifactOrderByField::Name && !query.asc {
+        if query.order_by == ExecutionOrderByField::Name && !query.asc {
             format!(">")
         } else {
             format!(
                 "[>]({})",
-                query.order_by(ArtifactOrderByField::Name, false).to_url()
+                query.order_by(ExecutionOrderByField::Name, false).to_url()
             )
         },
-        if query.order_by == ArtifactOrderByField::UpdateTime && query.asc {
+        if query.order_by == ExecutionOrderByField::UpdateTime && query.asc {
             format!("<")
         } else {
             format!(
                 "[<]({})",
                 query
-                    .order_by(ArtifactOrderByField::UpdateTime, true)
+                    .order_by(ExecutionOrderByField::UpdateTime, true)
                     .to_url()
             )
         },
-        if query.order_by == ArtifactOrderByField::UpdateTime && !query.asc {
+        if query.order_by == ExecutionOrderByField::UpdateTime && !query.asc {
             format!(">")
         } else {
             format!(
                 "[>]({})",
                 query
-                    .order_by(ArtifactOrderByField::UpdateTime, false)
+                    .order_by(ExecutionOrderByField::UpdateTime, false)
                     .to_url()
             )
         }
     );
     md += "|------|------|--------|-------|-------|--------|\n";
 
-    let artifacts = artifacts
+    let executions = executions
         .into_iter()
-        .map(|a| Artifact::from((artifact_types[&a.type_id].clone(), a)))
+        .map(|a| Execution::from((execution_types[&a.type_id].clone(), a)))
         .collect();
-    let artifacts = config
+    let executions = config
         .hook_runner
-        .run_artifact_summary_hook(artifacts)
+        .run_execution_summary_hook(executions)
         .await?;
-    for a in artifacts {
+    for a in executions {
         md += &format!(
             "| [{}]({}) | [{}]({}) | {} | {} | {} | {} |\n",
             a.id,
-            format!("/artifacts/{}", a.id),
+            format!("/executions/{}", a.id),
             a.type_name,
             query.filter_type(&a.type_name).to_url(),
             a.name.as_ref().map_or("", |x| x.as_str()),
@@ -286,100 +286,97 @@ pub async fn get_artifacts(
     Ok(response::markdown(&md))
 }
 
-#[get("/artifacts/{id}")]
-pub async fn get_artifact(
+#[get("/executions/{id}")]
+pub async fn get_execution(
     config: web::Data<Config>,
     path: web::Path<(i32,)>,
 ) -> actix_web::Result<HttpResponse> {
     let id = path.0;
     let mut store = config.connect_metadata_store().await?;
 
-    let artifacts = store
-        .get_artifacts()
-        .id(mlmd::metadata::ArtifactId::new(id))
+    let executions = store
+        .get_executions()
+        .id(mlmd::metadata::ExecutionId::new(id))
         .execute()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
-    if artifacts.is_empty() {
+    if executions.is_empty() {
         return Err(actix_web::error::ErrorNotFound(format!(
-            "no such artifact: {}",
+            "no such execution: {}",
             id
         )));
     }
 
     let types = store
-        .get_artifact_types()
-        .id(artifacts[0].type_id)
+        .get_execution_types()
+        .id(executions[0].type_id)
         .execute()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
-    if artifacts.is_empty() {
+    if executions.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such artifact tyep: {}",
-            artifacts[0].type_id.get(),
+            "no such execution tyep: {}",
+            executions[0].type_id.get(),
         )));
     }
 
-    let artifact = Artifact::from((types[0].clone(), artifacts[0].clone()));
-    let artifact = config
+    let execution = Execution::from((types[0].clone(), executions[0].clone()));
+    let execution = config
         .hook_runner
-        .run_artifact_detail_hook(artifact)
+        .run_execution_detail_hook(execution)
         .await?;
 
-    let mut md = "# Artifact\n".to_string();
+    let mut md = "# Execution\n".to_string();
 
-    md += &format!("- **ID**: {}\n", artifact.id);
+    md += &format!("- **ID**: {}\n", execution.id);
     md += &format!(
-        "- **Type**: [{}](/artifact_types/{})\n",
-        artifact.type_name,
+        "- **Type**: [{}](/execution_types/{})\n",
+        execution.type_name,
         types[0].id.get()
     );
-    if let Some(x) = &artifact.name {
+    if let Some(x) = &execution.name {
         md += &format!("- **Name**: {}\n", x);
     }
-    if let Some(x) = &artifact.uri {
-        md += &format!("- **URI**: {}\n", x);
-    }
-    md += &format!("- **State**: {}\n", artifact.state);
-    md += &format!("- **Create Time**: {}\n", artifact.ctime);
-    md += &format!("- **Update Time**: {}\n", artifact.mtime);
+    md += &format!("- **State**: {}\n", execution.state);
+    md += &format!("- **Create Time**: {}\n", execution.ctime);
+    md += &format!("- **Update Time**: {}\n", execution.mtime);
 
-    if !artifact.properties.is_empty() {
+    if !execution.properties.is_empty() {
         md += &format!("- **Properties**:\n");
-        for (k, v) in &artifact.properties {
+        for (k, v) in &execution.properties {
             md += &format!("  - **{}**: {}\n", k, v);
         }
     }
-    if !artifact.custom_properties.is_empty() {
+    if !execution.custom_properties.is_empty() {
         md += &format!("- **Custom Properties**:\n");
-        for (k, v) in &artifact.custom_properties {
+        for (k, v) in &execution.custom_properties {
             md += &format!("  - **{}**: {}\n", k, v);
         }
     }
 
     let contexts_len = store
         .get_contexts()
-        .artifact(mlmd::metadata::ArtifactId::new(artifact.id))
+        .execution(mlmd::metadata::ExecutionId::new(execution.id))
         .count()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let events_len = store
         .get_events()
-        .artifact(mlmd::metadata::ArtifactId::new(artifact.id))
+        .execution(mlmd::metadata::ExecutionId::new(execution.id))
         .count()
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if contexts_len > 0 {
         md += &format!(
-            "- [**Contexts**](/contexts/?artifact={}) ({})\n",
-            artifact.id, contexts_len
+            "- [**Contexts**](/contexts/?execution={}) ({})\n",
+            execution.id, contexts_len
         );
     }
     if events_len > 0 {
         md += &format!(
-            "- [**Events**](/events/?artifact={}) ({})\n",
-            artifact.id, events_len
+            "- [**Events**](/events/?execution={}) ({})\n",
+            execution.id, events_len
         );
     }
 
