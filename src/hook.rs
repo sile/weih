@@ -68,10 +68,49 @@ impl HookRunner {
         }
     }
 
+    pub async fn run_artifact_summary_hook(
+        &self,
+        artifacts: Vec<crate::mlmd::artifact::Artifact>,
+    ) -> actix_web::error::Result<Vec<crate::mlmd::artifact::Artifact>> {
+        let id_to_index = artifacts
+            .iter()
+            .enumerate()
+            .map(|(index, a)| (a.id, index))
+            .collect::<HashMap<_, _>>();
+        let mut type_to_artifacts: HashMap<_, Vec<_>> = HashMap::new();
+        for a in &artifacts {
+            type_to_artifacts
+                .entry(&a.type_name)
+                .or_default()
+                .push(a.clone());
+        }
+
+        let mut result = Vec::new();
+        for (_, a) in type_to_artifacts {
+            let input = HookInput::ArtifactSummary(a.clone());
+            match self.run(input).await? {
+                None => {
+                    result.extend(a);
+                }
+                Some(HookOutput::ArtifactSummary(a)) => {
+                    result.extend(a);
+                }
+                Some(o) => {
+                    return Err(actix_web::error::ErrorInternalServerError(format!(
+                        "unexpected hook result: {:?}",
+                        o
+                    )))
+                }
+            }
+        }
+        result.sort_by_key(|a| id_to_index[&a.id]);
+        Ok(result)
+    }
+
     pub async fn run_artifact_detail_hook(
         &self,
-        artifact: crate::mlmd::artifact::ArtifactDetail,
-    ) -> actix_web::error::Result<crate::mlmd::artifact::ArtifactDetail> {
+        artifact: crate::mlmd::artifact::Artifact,
+    ) -> actix_web::error::Result<crate::mlmd::artifact::Artifact> {
         let input = HookInput::ArtifactDetail(ArtifactDetailHookInput {
             artifact: artifact.clone(),
         });
@@ -87,7 +126,7 @@ impl HookRunner {
 
     pub async fn run_artifact_content_hook(
         &self,
-        artifact: crate::mlmd::artifact::ArtifactDetail,
+        artifact: crate::mlmd::artifact::Artifact,
         content_name: &str,
     ) -> actix_web::error::Result<crate::hook::GeneralOutput> {
         let input = HookInput::ArtifactContent(ArtifactContentHookInput {
@@ -148,7 +187,7 @@ impl HookCommand {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum HookInput {
-    ArtifactSummary,
+    ArtifactSummary(Vec<crate::mlmd::artifact::Artifact>),
     ArtifactDetail(ArtifactDetailHookInput),
     ArtifactContent(ArtifactContentHookInput),
     ExecutionSummary,
@@ -162,7 +201,7 @@ pub enum HookInput {
 impl HookInput {
     pub fn item_type(&self) -> ItemType {
         match self {
-            Self::ArtifactSummary | Self::ArtifactDetail(_) | Self::ArtifactContent(_) => {
+            Self::ArtifactSummary(_) | Self::ArtifactDetail(_) | Self::ArtifactContent(_) => {
                 ItemType::Artifact
             }
             Self::ExecutionSummary | Self::ExecutionDetail | Self::ExecutionContent => {
@@ -174,6 +213,7 @@ impl HookInput {
 
     pub fn type_name(&self) -> &str {
         match self {
+            Self::ArtifactSummary(x) => &x[0].type_name,
             Self::ArtifactDetail(x) => &x.artifact.type_name,
             Self::ArtifactContent(x) => &x.artifact.type_name,
             _ => todo!(),
@@ -184,20 +224,20 @@ impl HookInput {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactDetailHookInput {
-    pub artifact: crate::mlmd::artifact::ArtifactDetail,
+    pub artifact: crate::mlmd::artifact::Artifact,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactContentHookInput {
-    pub artifact: crate::mlmd::artifact::ArtifactDetail,
+    pub artifact: crate::mlmd::artifact::Artifact,
     pub content_name: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum HookOutput {
-    ArtifactSummary,
+    ArtifactSummary(Vec<crate::mlmd::artifact::Artifact>),
     ArtifactDetail(ArtifactDetailHookOutput),
     ArtifactContent(GeneralOutput),
     ExecutionSummary,
@@ -211,7 +251,7 @@ pub enum HookOutput {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactDetailHookOutput {
-    pub artifact: crate::mlmd::artifact::ArtifactDetail,
+    pub artifact: crate::mlmd::artifact::Artifact,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

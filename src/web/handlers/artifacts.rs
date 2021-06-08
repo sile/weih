@@ -1,5 +1,5 @@
 use crate::hook::GeneralOutput;
-use crate::mlmd::artifact::ArtifactDetail;
+use crate::mlmd::artifact::Artifact;
 use crate::web::{response, Config};
 use actix_web::{get, web, HttpResponse};
 
@@ -37,7 +37,7 @@ async fn get_artifact_content(
             artifacts[0].type_id.get(),
         )));
     }
-    let artifact = ArtifactDetail::from((types[0].clone(), artifacts[0].clone()));
+    let artifact = Artifact::from((types[0].clone(), artifacts[0].clone()));
 
     let output = config
         .hook_runner

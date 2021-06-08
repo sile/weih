@@ -1,5 +1,5 @@
 use crate::hook::HookRunner;
-use crate::mlmd::artifact::{ArtifactDetail, ArtifactOrderByField, ArtifactSummary};
+use crate::mlmd::artifact::{Artifact, ArtifactOrderByField};
 use actix_web::{web, App, HttpResponse, HttpServer};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -205,7 +205,7 @@ async fn get_artifacts(
 
     md += "\n";
     md += &format!(
-        "| id{}{} | type | name{}{} | state | update-time{}{} |\n",
+        "| id{}{} | type | name{}{} | state | update-time{}{} | summary |\n",
         if query.order_by == ArtifactOrderByField::Id && query.asc {
             format!("<")
         } else {
@@ -259,19 +259,27 @@ async fn get_artifacts(
             )
         }
     );
-    md += "|------|------|--------|-------|---------------|\n";
+    md += "|------|------|--------|-------|-------|--------|\n";
 
-    for artifact in artifacts {
-        let a = ArtifactSummary::from((artifact_types[&artifact.type_id].clone(), artifact));
+    let artifacts = artifacts
+        .into_iter()
+        .map(|a| Artifact::from((artifact_types[&a.type_id].clone(), a)))
+        .collect();
+    let artifacts = config
+        .hook_runner
+        .run_artifact_summary_hook(artifacts)
+        .await?;
+    for a in artifacts {
         md += &format!(
-            "| [{}]({}) | [{}]({}) | {} | {} | {} |\n",
+            "| [{}]({}) | [{}]({}) | {} | {} | {} | {} |\n",
             a.id,
             format!("/artifacts/{}", a.id),
             a.type_name,
             query.filter_type(&a.type_name).to_url(),
             a.name.as_ref().map_or("", |x| x.as_str()),
             a.state,
-            a.mtime
+            a.mtime,
+            a.summary.as_ref().map_or("", |x| x.as_str())
         );
     }
 
@@ -313,7 +321,7 @@ async fn get_artifact(
         )));
     }
 
-    let artifact = ArtifactDetail::from((types[0].clone(), artifacts[0].clone()));
+    let artifact = Artifact::from((types[0].clone(), artifacts[0].clone()));
     let artifact = config
         .hook_runner
         .run_artifact_detail_hook(artifact)

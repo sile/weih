@@ -41,33 +41,8 @@ impl From<mlmd::metadata::ArtifactType> for ArtifactTypeDetail {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ArtifactSummary {
-    pub id: i32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(rename = "type")]
-    pub type_name: String,
-    pub state: ArtifactState,
-    pub ctime: DateTime,
-    pub mtime: DateTime,
-}
-
-impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for ArtifactSummary {
-    fn from(x: (mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)) -> Self {
-        Self {
-            id: x.1.id.get(),
-            type_name: x.0.name,
-            name: x.1.name,
-            state: x.1.state.into(),
-            ctime: crate::time::duration_to_datetime(x.1.create_time_since_epoch),
-            mtime: crate::time::duration_to_datetime(x.1.last_update_time_since_epoch),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ArtifactDetail {
+pub struct Artifact {
     pub id: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -82,10 +57,12 @@ pub struct ArtifactDetail {
     pub properties: BTreeMap<String, PropertyValue>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub custom_properties: BTreeMap<String, PropertyValue>,
-    // TODO: context, recent_events
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
-impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for ArtifactDetail {
+impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for Artifact {
     fn from(x: (mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)) -> Self {
         Self {
             id: x.1.id.get(),
@@ -107,6 +84,7 @@ impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for Artifact
                 .into_iter()
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
+            summary: None,
         }
     }
 }
