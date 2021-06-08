@@ -44,6 +44,7 @@ pub async fn http_server_run(
             .service(self::handlers::context_types::get_context_type_detail)
             .service(web::resource("/artifacts/").route(web::get().to(get_artifacts)))
             .service(web::resource("/artifacts/{id}").route(web::get().to(get_artifact)))
+            .service(self::handlers::events::get_events)
     })
     .bind(bind_addr)?
     .run()
