@@ -356,6 +356,12 @@ pub async fn get_artifact(
             md += &format!("  - **{}**: {}\n", k, v);
         }
     }
+    if !artifact.extra_properties.is_empty() {
+        md += &format!("- **Extra Properties**:\n");
+        for (k, v) in &artifact.extra_properties {
+            md += &format!("  - **{}**: {}\n", k, v);
+        }
+    }
 
     let contexts_len = store
         .get_contexts()

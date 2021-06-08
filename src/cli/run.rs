@@ -27,9 +27,9 @@ impl RunOpt {
             for opt in serde_json::Deserializer::from_reader(f).into_iter() {
                 opts.push(opt?);
             }
-            crate::hook::HookRunner::new(&opts)
+            crate::hook::HookRunner::new(&opts, &self.store.database)
         } else {
-            crate::hook::HookRunner::new(&[])
+            crate::hook::HookRunner::new(&[], &self.store.database)
         };
 
         web::http_server_run(bind_addr, self.store.database.clone(), hook_runner).await

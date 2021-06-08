@@ -33,7 +33,7 @@ pub struct HookRunner {
 }
 
 impl HookRunner {
-    pub fn new(hook_opts: &[HookOpt]) -> Self {
+    pub fn new(hook_opts: &[HookOpt], metadata_store_uri: &str) -> Self {
         let mut hooks = HashMap::new();
         for opt in hook_opts {
             let key = HookKey {
@@ -43,6 +43,9 @@ impl HookRunner {
             let val = HookCommand {
                 path: opt.command.clone(),
                 args: opt.args.clone(),
+                envs: vec![("WEIH_MLMD_DB".to_string(), metadata_store_uri.to_string())]
+                    .into_iter()
+                    .collect(),
             };
             hooks.insert(key, val);
         }
@@ -313,11 +316,17 @@ pub struct HookKey {
 pub struct HookCommand {
     path: PathBuf,
     args: Vec<String>,
+    envs: HashMap<String, String>,
 }
 
 impl HookCommand {
     pub fn run(&self, input: HookInput) -> anyhow::Result<HookOutput> {
-        let mut child = std::process::Command::new(&self.path)
+        let mut command = std::process::Command::new(&self.path);
+        for (k, v) in &self.envs {
+            command.env(k, v);
+        }
+
+        let mut child = command
             .args(&self.args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

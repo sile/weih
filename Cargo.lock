@@ -62,9 +62,9 @@ dependencies = [
 
 [[package]]
 name = "actix-macros"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbcb2b608f0accc2f5bcf3dd872194ce13d94ee45b571487035864cf966b04ef"
+checksum = "c2f86cd6857c135e6e9fe57b1619a88d1f94a7df34c00e11fe13e64fd3438837"
 dependencies = [
  "quote",
  "syn",
@@ -1069,9 +1069,9 @@ dependencies = [
 
 [[package]]
 name = "mlmd"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a10da97e91a168649fbda456cbb35a04cc2d606187aefdd85d1da2feb855588"
+checksum = "64972585e2792411352da8637b6f11ed3eea60edf680bfbba559e622d476fd50"
 dependencies = [
  "anyhow",
  "futures",

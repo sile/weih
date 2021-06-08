@@ -58,6 +58,9 @@ pub struct Artifact {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub custom_properties: BTreeMap<String, PropertyValue>,
 
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra_properties: BTreeMap<String, PropertyValue>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
@@ -84,6 +87,7 @@ impl From<(mlmd::metadata::ArtifactType, mlmd::metadata::Artifact)> for Artifact
                 .into_iter()
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
+            extra_properties: BTreeMap::new(),
             summary: None,
         }
     }
