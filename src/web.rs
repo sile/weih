@@ -46,6 +46,9 @@ pub async fn http_server_run(
             .service(self::handlers::executions::get_execution_content)
             .service(self::handlers::context_types::get_context_type_summaries)
             .service(self::handlers::context_types::get_context_type_detail)
+            .service(self::handlers::contexts::get_contexts)
+            .service(self::handlers::contexts::get_context)
+            .service(self::handlers::contexts::get_context_content)
             .service(self::handlers::events::get_events)
     })
     .bind(bind_addr)?

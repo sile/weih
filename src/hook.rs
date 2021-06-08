@@ -223,6 +223,84 @@ impl HookRunner {
             ))),
         }
     }
+
+    pub async fn run_context_summary_hook(
+        &self,
+        contexts: Vec<crate::mlmd::context::Context>,
+    ) -> actix_web::error::Result<Vec<crate::mlmd::context::Context>> {
+        let id_to_index = contexts
+            .iter()
+            .enumerate()
+            .map(|(index, a)| (a.id, index))
+            .collect::<HashMap<_, _>>();
+        let mut type_to_contexts: HashMap<_, Vec<_>> = HashMap::new();
+        for a in &contexts {
+            type_to_contexts
+                .entry(&a.type_name)
+                .or_default()
+                .push(a.clone());
+        }
+
+        let mut result = Vec::new();
+        for (_, a) in type_to_contexts {
+            let input = HookInput::ContextSummary(a.clone());
+            match self.run(input).await? {
+                None => {
+                    result.extend(a);
+                }
+                Some(HookOutput::ContextSummary(a)) => {
+                    result.extend(a);
+                }
+                Some(o) => {
+                    return Err(actix_web::error::ErrorInternalServerError(format!(
+                        "unexpected hook result: {:?}",
+                        o
+                    )))
+                }
+            }
+        }
+        result.sort_by_key(|a| id_to_index[&a.id]);
+        Ok(result)
+    }
+
+    pub async fn run_context_detail_hook(
+        &self,
+        context: crate::mlmd::context::Context,
+    ) -> actix_web::error::Result<crate::mlmd::context::Context> {
+        let input = HookInput::ContextDetail(ContextDetailHookInput {
+            context: context.clone(),
+        });
+        match self.run(input).await? {
+            None => Ok(context),
+            Some(HookOutput::ContextDetail(o)) => Ok(o.context),
+            Some(o) => Err(actix_web::error::ErrorInternalServerError(format!(
+                "unexpected hook result: {:?}",
+                o
+            ))),
+        }
+    }
+
+    pub async fn run_context_content_hook(
+        &self,
+        context: crate::mlmd::context::Context,
+        content_name: &str,
+    ) -> actix_web::error::Result<crate::hook::GeneralOutput> {
+        let input = HookInput::ContextContent(ContextContentHookInput {
+            context: context.clone(),
+            content_name: content_name.to_owned(),
+        });
+        match self.run(input).await? {
+            None => Err(actix_web::error::ErrorNotFound(format!(
+                "no such content: {:?}",
+                content_name
+            ))),
+            Some(HookOutput::ContextContent(o)) => Ok(o),
+            Some(o) => Err(actix_web::error::ErrorInternalServerError(format!(
+                "unexpected hook result: {:?}",
+                o
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -271,9 +349,9 @@ pub enum HookInput {
     ExecutionSummary(Vec<crate::mlmd::execution::Execution>),
     ExecutionDetail(ExecutionDetailHookInput),
     ExecutionContent(ExecutionContentHookInput),
-    ContextSummary,
-    ContextDetail,
-    ContextContent,
+    ContextSummary(Vec<crate::mlmd::context::Context>),
+    ContextDetail(ContextDetailHookInput),
+    ContextContent(ContextContentHookInput),
 }
 
 impl HookInput {
@@ -285,7 +363,9 @@ impl HookInput {
             Self::ExecutionSummary(_) | Self::ExecutionDetail(_) | Self::ExecutionContent(_) => {
                 ItemType::Execution
             }
-            Self::ContextSummary | Self::ContextDetail | Self::ContextContent => ItemType::Context,
+            Self::ContextSummary(_) | Self::ContextDetail(_) | Self::ContextContent(_) => {
+                ItemType::Context
+            }
         }
     }
 
@@ -297,7 +377,9 @@ impl HookInput {
             Self::ExecutionSummary(x) => &x[0].type_name,
             Self::ExecutionDetail(x) => &x.execution.type_name,
             Self::ExecutionContent(x) => &x.execution.type_name,
-            _ => todo!(),
+            Self::ContextSummary(x) => &x[0].type_name,
+            Self::ContextDetail(x) => &x.context.type_name,
+            Self::ContextContent(x) => &x.context.type_name,
         }
     }
 }
@@ -330,6 +412,19 @@ pub struct ExecutionContentHookInput {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub struct ContextDetailHookInput {
+    pub context: crate::mlmd::context::Context,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ContextContentHookInput {
+    pub context: crate::mlmd::context::Context,
+    pub content_name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum HookOutput {
     ArtifactSummary(Vec<crate::mlmd::artifact::Artifact>),
     ArtifactDetail(ArtifactDetailHookOutput),
@@ -337,9 +432,9 @@ pub enum HookOutput {
     ExecutionSummary(Vec<crate::mlmd::execution::Execution>),
     ExecutionDetail(ExecutionDetailHookOutput),
     ExecutionContent(GeneralOutput),
-    ContextSummary,
-    ContextDetail,
-    ContextContent,
+    ContextSummary(Vec<crate::mlmd::context::Context>),
+    ContextDetail(ContextDetailHookOutput),
+    ContextContent(GeneralOutput),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -352,6 +447,12 @@ pub struct ArtifactDetailHookOutput {
 #[serde(rename_all = "kebab-case")]
 pub struct ExecutionDetailHookOutput {
     pub execution: crate::mlmd::execution::Execution,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ContextDetailHookOutput {
+    pub context: crate::mlmd::context::Context,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
