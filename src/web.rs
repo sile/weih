@@ -349,9 +349,32 @@ async fn get_artifact(
             md += &format!("  - **{}**: {}\n", k, v);
         }
     }
-    // TODO: Add count
-    md += &format!("- [**Contexts**](/contexts/?artifact={})\n", artifact.id);
-    md += &format!("- [**Events**](/events/?artifact={})\n", artifact.id);
+
+    let contexts_len = store
+        .get_contexts()
+        .artifact(mlmd::metadata::ArtifactId::new(artifact.id))
+        .count()
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    let events_len = store
+        .get_events()
+        .artifact(mlmd::metadata::ArtifactId::new(artifact.id))
+        .count()
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+    if contexts_len > 0 {
+        md += &format!(
+            "- [**Contexts**](/contexts/?artifact={}) ({})\n",
+            artifact.id, contexts_len
+        );
+    }
+    if events_len > 0 {
+        md += &format!(
+            "- [**Events**](/events/?artifact={}) ({})\n",
+            artifact.id, events_len
+        );
+    }
 
     Ok(HttpResponse::Ok()
         .content_type("text/html")

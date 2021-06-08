@@ -1069,9 +1069,9 @@ dependencies = [
 
 [[package]]
 name = "mlmd"
-version = "0.2.5"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d2214e50c0635f90737e1b40eb2566154d0b5859969d59e7dd6372f6b6464d7"
+checksum = "6a10da97e91a168649fbda456cbb35a04cc2d606187aefdd85d1da2feb855588"
 dependencies = [
  "anyhow",
  "futures",
