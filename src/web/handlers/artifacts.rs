@@ -73,7 +73,7 @@ pub struct GetArtifactsQuery {
 
 impl GetArtifactsQuery {
     // TODO
-    async fn get_artifacts(
+    pub async fn get_artifacts(
         &self,
         store: &mut mlmd::MetadataStore,
     ) -> anyhow::Result<Vec<mlmd::metadata::Artifact>> {
@@ -149,7 +149,11 @@ impl GetArtifactsQuery {
         this
     }
 
-    fn to_url(&self) -> String {
+    pub fn to_url(&self) -> String {
+        format!("/artifacts/?{}", self.to_qs())
+    }
+
+    pub fn to_qs(&self) -> String {
         let qs = serde_json::to_value(self)
             .expect("unreachable")
             .as_object()
@@ -157,7 +161,7 @@ impl GetArtifactsQuery {
             .into_iter()
             .map(|(k, v)| format!("{}={}", k, v.to_string().trim_matches('"')))
             .collect::<Vec<_>>();
-        format!("/artifacts/?{}", qs.join("&"))
+        qs.join("&")
     }
 
     fn offset(&self) -> usize {
@@ -202,6 +206,11 @@ pub async fn get_artifacts(
     } else {
         md += ">>";
     }
+    md += &format!(
+        " plot: [histogram](/plot/histogram?{}), [scatter](/plot/scatter?{})\n",
+        query.to_qs(),
+        query.to_qs()
+    );
 
     md += "\n";
     md += &format!(

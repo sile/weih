@@ -50,6 +50,8 @@ pub async fn http_server_run(
             .service(self::handlers::contexts::get_context)
             .service(self::handlers::contexts::get_context_content)
             .service(self::handlers::events::get_events)
+            .service(self::handlers::plot::plot_histogram)
+            .service(self::handlers::plot::plot_scatter)
     })
     .bind(bind_addr)?
     .run()

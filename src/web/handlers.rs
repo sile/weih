@@ -6,3 +6,4 @@ pub mod events;
 pub mod execution_types;
 pub mod executions;
 pub mod index;
+pub mod plot;
