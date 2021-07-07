@@ -16,6 +16,12 @@ pub fn json(s: &str) -> HttpResponse {
         .body(s.to_string())
 }
 
+pub fn svg(s: &str) -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("image/svg+xml")
+        .body(s.to_string())
+}
+
 fn md_to_html(md: &str) -> String {
     let mut opt = comrak::ComrakOptions::default();
     opt.extension.table = true;

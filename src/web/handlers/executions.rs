@@ -380,5 +380,230 @@ pub async fn get_execution(
         );
     }
 
+    md += &format!("- [**Graph**](/executions/{}/graph)\n", execution.id);
+
     Ok(response::markdown(&md))
+}
+
+#[get("/executions/{id}/graph")]
+pub async fn get_execution_graph(
+    config: web::Data<Config>,
+    path: web::Path<(i32,)>,
+) -> actix_web::Result<HttpResponse> {
+    let id = path.0;
+    let mut store = config.connect_metadata_store().await?;
+
+    let graph = Graph::new(&mut store, id)
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    let svg = std::process::Command::new("dot")
+        .arg("-Tsvg")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .ok()
+        .and_then(|mut child| {
+            use std::io::Write;
+
+            let writer = child.stdin.as_mut()?;
+            graph.render(writer).ok()?;
+            writer.flush().ok()?;
+            let output = child.wait_with_output().ok()?;
+            if !output.status.success() {
+                None
+            } else {
+                Some(output.stdout)
+            }
+        });
+
+    if let Some(svg) = svg {
+        Ok(response::svg(&String::from_utf8(svg).expect("TODO")))
+    } else {
+        let mut buf = Vec::new();
+        graph.render(&mut buf).expect("TODO");
+        Ok(response::markdown(&String::from_utf8(buf).expect("TODO")))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum NodeId {
+    Execution(i32),
+    Artifact(i32),
+}
+
+impl std::fmt::Display for NodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Execution(x) => write!(f, "E{}", x),
+            Self::Artifact(x) => write!(f, "A{}", x),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Node {
+    Execution(Execution),
+    Artifact(crate::mlmd::artifact::Artifact),
+}
+
+impl Node {
+    fn id(&self) -> NodeId {
+        match self {
+            Self::Execution(x) => NodeId::Execution(x.id),
+            Self::Artifact(x) => NodeId::Artifact(x.id),
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::Execution(x) => format!("{}@{}", x.id, x.type_name),
+            Self::Artifact(x) => format!("{}@{}", x.id, x.type_name),
+        }
+    }
+
+    fn url(&self) -> String {
+        match self {
+            Self::Execution(x) => format!("/executions/{}", x.id),
+            Self::Artifact(x) => format!("/artifacts/{}", x.id),
+        }
+    }
+
+    fn shape(&self) -> String {
+        match self {
+            Self::Execution(_) => format!("box"),
+            Self::Artifact(_) => format!("ellipse"),
+        }
+    }
+
+    fn attrs(&self) -> Vec<String> {
+        vec![
+            format!("label={:?}", self.label()),
+            format!("shape={:?}", self.shape()),
+            format!("URL={:?}", self.url()),
+        ]
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Edge {
+    source: Node,
+    target: Node,
+    event: crate::mlmd::event::Event,
+}
+
+#[derive(Debug)]
+struct Graph {
+    nodes: Vec<Node>,
+    edges: Vec<Edge>,
+}
+
+impl Graph {
+    async fn new(store: &mut mlmd::MetadataStore, execution_id: i32) -> anyhow::Result<Self> {
+        let mut nodes = HashMap::new();
+        let mut stack = vec![NodeId::Execution(execution_id)];
+        while let Some(curr) = stack.pop() {
+            if nodes.contains_key(&curr) {
+                continue;
+            }
+            let curr = match curr {
+                NodeId::Execution(id) => Node::Execution(fetch_execution(store, id).await?),
+                NodeId::Artifact(id) => Node::Artifact(fetch_artifact(store, id).await?),
+            };
+            nodes.insert(curr.id(), curr.clone());
+            anyhow::ensure!(
+                nodes.len() < 100,
+                "Too many executions and artifact to visualize"
+            );
+
+            let events = match curr {
+                Node::Execution(x) => {
+                    store
+                        .get_events()
+                        .execution(mlmd::metadata::ExecutionId::new(x.id))
+                        .execute()
+                        .await?
+                }
+                Node::Artifact(x) => {
+                    store
+                        .get_events()
+                        .artifact(mlmd::metadata::ArtifactId::new(x.id))
+                        .execute()
+                        .await?
+                }
+            };
+
+            for event in events {
+                stack.push(NodeId::Execution(event.execution_id.get()));
+                stack.push(NodeId::Artifact(event.artifact_id.get()));
+                // TODO: edges
+            }
+        }
+
+        Ok(Self {
+            nodes: nodes.into_iter().map(|x| x.1).collect(),
+            edges: Vec::new(),
+        })
+    }
+
+    fn render<W: std::io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
+        writeln!(writer, "digraph execution_graph {{")?;
+
+        for node in &self.nodes {
+            writeln!(writer, "{}[{}]", node.id(), node.attrs().join(","))?;
+        }
+
+        writeln!(writer, "}}")?;
+        Ok(())
+    }
+}
+
+async fn fetch_execution(store: &mut mlmd::MetadataStore, id: i32) -> anyhow::Result<Execution> {
+    let executions = store
+        .get_executions()
+        .id(mlmd::metadata::ExecutionId::new(id))
+        .execute()
+        .await?;
+    anyhow::ensure!(!executions.is_empty(), "no such execution: {}", id);
+
+    let types = store
+        .get_execution_types()
+        .id(executions[0].type_id)
+        .execute()
+        .await?;
+    anyhow::ensure!(
+        !executions.is_empty(),
+        "no such execution tyep: {}",
+        executions[0].type_id.get()
+    );
+
+    Ok(Execution::from((types[0].clone(), executions[0].clone())))
+}
+
+async fn fetch_artifact(
+    store: &mut mlmd::MetadataStore,
+    id: i32,
+) -> anyhow::Result<crate::mlmd::artifact::Artifact> {
+    let artifacts = store
+        .get_artifacts()
+        .id(mlmd::metadata::ArtifactId::new(id))
+        .execute()
+        .await?;
+    anyhow::ensure!(!artifacts.is_empty(), "no such artifact: {}", id);
+
+    let types = store
+        .get_artifact_types()
+        .id(artifacts[0].type_id)
+        .execute()
+        .await?;
+    anyhow::ensure!(
+        !artifacts.is_empty(),
+        "no such artifact tyep: {}",
+        artifacts[0].type_id.get()
+    );
+
+    Ok(crate::mlmd::artifact::Artifact::from((
+        types[0].clone(),
+        artifacts[0].clone(),
+    )))
 }

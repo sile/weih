@@ -44,6 +44,7 @@ pub async fn http_server_run(
             .service(self::handlers::executions::get_executions)
             .service(self::handlers::executions::get_execution)
             .service(self::handlers::executions::get_execution_content)
+            .service(self::handlers::executions::get_execution_graph)
             .service(self::handlers::context_types::get_context_type_summaries)
             .service(self::handlers::context_types::get_context_type_detail)
             .service(self::handlers::contexts::get_contexts)
