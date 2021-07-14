@@ -49,6 +49,7 @@ async fn get_artifact_content(
         GeneralOutput::Json(x) => Ok(response::json(&x)),
         GeneralOutput::Markdown(x) => Ok(response::markdown(&x)),
         GeneralOutput::Html(x) => Ok(response::html(&x)),
+        GeneralOutput::Redirect(x) => Ok(response::redirect(&x)),
     }
 }
 

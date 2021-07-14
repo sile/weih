@@ -16,6 +16,12 @@ pub fn json(s: &str) -> HttpResponse {
         .body(s.to_string())
 }
 
+pub fn redirect(url: &str) -> HttpResponse {
+    HttpResponse::build(actix_web::http::StatusCode::TEMPORARY_REDIRECT)
+        .append_header(("Location", url))
+        .finish()
+}
+
 fn md_to_html(md: &str) -> String {
     let mut opt = comrak::ComrakOptions::default();
     opt.extension.table = true;
