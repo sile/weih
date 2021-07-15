@@ -34,7 +34,7 @@ async fn get_artifact_content(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if artifacts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such artifact tyep: {}",
+            "no such artifact type: {}",
             artifacts[0].type_id.get(),
         )));
     }
@@ -329,7 +329,7 @@ pub async fn get_artifact(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if artifacts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such artifact tyep: {}",
+            "no such artifact type: {}",
             artifacts[0].type_id.get(),
         )));
     }

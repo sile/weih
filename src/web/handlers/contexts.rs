@@ -34,7 +34,7 @@ async fn get_context_content(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if contexts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such context tyep: {}",
+            "no such context type: {}",
             contexts[0].type_id.get(),
         )));
     }
@@ -316,7 +316,7 @@ pub async fn get_context(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if contexts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such context tyep: {}",
+            "no such context type: {}",
             contexts[0].type_id.get(),
         )));
     }

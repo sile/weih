@@ -34,7 +34,7 @@ async fn get_execution_content(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if executions.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such execution tyep: {}",
+            "no such execution type: {}",
             executions[0].type_id.get(),
         )));
     }
@@ -318,7 +318,7 @@ pub async fn get_execution(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if executions.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such execution tyep: {}",
+            "no such execution type: {}",
             executions[0].type_id.get(),
         )));
     }
