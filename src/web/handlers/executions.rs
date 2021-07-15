@@ -187,23 +187,24 @@ pub async fn get_executions(
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let mut md = "# Executions\n".to_string();
-
+    let mut pager_md = String::new();
     if query.offset() != 0 {
-        md += &format!(" [<<]({})", query.prev().to_url());
+        pager_md += &format!(" [<<]({})", query.prev().to_url());
     } else {
-        md += " <<";
+        pager_md += " <<";
     }
-    md += &format!(
+    pager_md += &format!(
         " {}~{} ",
         query.offset() + 1,
         query.offset() + executions.len()
     );
     if executions.len() == query.limit() {
-        md += &format!("[>>]({})", query.next().to_url());
+        pager_md += &format!("[>>]({})", query.next().to_url());
     } else {
-        md += ">>";
+        pager_md += ">>";
     }
 
+    md += &pager_md;
     md += "\n";
     md += &format!(
         "| id{}{} | type | name{}{} | state | update-time{}{} | summary |\n",
@@ -284,6 +285,7 @@ pub async fn get_executions(
         );
     }
 
+    md += &pager_md;
     Ok(response::markdown(&md))
 }
 

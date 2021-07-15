@@ -192,21 +192,23 @@ pub async fn get_artifacts(
 
     let mut md = "# Artifacts\n".to_string();
 
+    let mut pager_md = String::new();
     if query.offset() != 0 {
-        md += &format!(" [<<]({})", query.prev().to_url());
+        pager_md += &format!(" [<<]({})", query.prev().to_url());
     } else {
-        md += " <<";
+        pager_md += " <<";
     }
-    md += &format!(
+    pager_md += &format!(
         " {}~{} ",
         query.offset() + 1,
         query.offset() + artifacts.len()
     );
     if artifacts.len() == query.limit() {
-        md += &format!("[>>]({})", query.next().to_url());
+        pager_md += &format!("[>>]({})", query.next().to_url());
     } else {
-        md += ">>";
+        pager_md += ">>";
     }
+    md += &pager_md;
     md += &format!(
         " plot: [histogram](/plot/histogram?{}), [scatter](/plot/scatter?{})\n",
         query.to_qs(),
@@ -292,6 +294,8 @@ pub async fn get_artifacts(
             a.summary.as_ref().map_or("", |x| x.as_str())
         );
     }
+
+    md += &pager_md;
 
     Ok(response::markdown(&md))
 }
