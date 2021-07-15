@@ -289,24 +289,49 @@ pub async fn get_executions(
     Ok(response::markdown(&md))
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct GetExecutionQuery {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+}
+
 #[get("/executions/{id}")]
 pub async fn get_execution(
     config: web::Data<Config>,
-    path: web::Path<(i32,)>,
+    path: web::Path<(String,)>,
+    query: web::Query<GetExecutionQuery>,
 ) -> actix_web::Result<HttpResponse> {
-    let id = path.0;
+    let id_or_name = &path.0;
     let mut store = config.connect_metadata_store().await?;
 
-    let executions = store
-        .get_executions()
-        .id(mlmd::metadata::ExecutionId::new(id))
-        .execute()
-        .await
-        .map_err(actix_web::error::ErrorInternalServerError)?;
+    let executions = match id_or_name.parse::<i32>().ok() {
+        Some(id) => store
+            .get_executions()
+            .id(mlmd::metadata::ExecutionId::new(id))
+            .execute()
+            .await
+            .map_err(actix_web::error::ErrorInternalServerError)?,
+        None => {
+            let name = id_or_name;
+            if let Some(type_name) = &query.type_name {
+                store
+                    .get_executions()
+                    .type_and_name(type_name, name)
+                    .execute()
+                    .await
+                    .map_err(actix_web::error::ErrorInternalServerError)?
+            } else {
+                return Err(actix_web::error::ErrorBadRequest(format!(
+                    "`type` query parameter must be specified"
+                )));
+            }
+        }
+    };
     if executions.is_empty() {
         return Err(actix_web::error::ErrorNotFound(format!(
             "no such execution: {}",
-            id
+            id_or_name
         )));
     }
 
