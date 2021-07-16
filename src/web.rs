@@ -32,7 +32,7 @@ pub async fn http_server_run(
     };
     HttpServer::new(move || {
         App::new()
-            .data(config.clone())
+            .app_data(config.clone())
             .service(self::handlers::index::get_index)
             .service(self::handlers::artifact_types::get_artifact_type_summaries)
             .service(self::handlers::artifact_types::get_artifact_type_detail)

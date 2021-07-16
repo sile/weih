@@ -1,8 +1,10 @@
 use crate::hook::GeneralOutput;
 use crate::mlmd::execution::{Execution, ExecutionOrderByField};
+use crate::time::DateTime;
 use crate::web::{response, Config};
 use actix_web::{get, web, HttpResponse};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 #[get("/executions/{id}/contents/{name}")]
 async fn get_execution_content(
@@ -70,6 +72,10 @@ pub struct GetExecutionsQuery {
     pub order_by: ExecutionOrderByField,
     #[serde(default)]
     pub asc: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_start: Option<DateTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_end: Option<DateTime>,
 }
 
 impl GetExecutionsQuery {
@@ -99,6 +105,24 @@ impl GetExecutionsQuery {
             }
         }
         request = request.order_by(self.order_by.into(), self.asc);
+
+        match (self.mtime_start, self.mtime_end) {
+            (None, None) => {}
+            (Some(start), None) => {
+                request =
+                    request.update_time(Duration::from_millis(start.timestamp_millis() as u64)..);
+            }
+            (None, Some(end)) => {
+                request =
+                    request.update_time(..Duration::from_millis(end.timestamp_millis() as u64));
+            }
+            (Some(start), Some(end)) => {
+                request = request.update_time(
+                    Duration::from_millis(start.timestamp_millis() as u64)
+                        ..Duration::from_millis(end.timestamp_millis() as u64),
+                );
+            }
+        }
 
         Ok(request.execute().await?)
     }
@@ -135,6 +159,20 @@ impl GetExecutionsQuery {
         this
     }
 
+    fn reset_mtime_start(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_start = None;
+        this.offset = None;
+        this
+    }
+
+    fn reset_mtime_end(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_end = None;
+        this.offset = None;
+        this
+    }
+
     fn filter_type(&self, type_name: &str) -> Self {
         let mut this = self.clone();
         this.type_name = Some(type_name.to_owned());
@@ -156,7 +194,13 @@ impl GetExecutionsQuery {
             .as_object()
             .expect("unwrap")
             .into_iter()
-            .map(|(k, v)| format!("{}={}", k, v.to_string().trim_matches('"')))
+            .map(|(k, v)| {
+                format!(
+                    "{}={}",
+                    k,
+                    v.to_string().trim_matches('"').replace('+', "%2B") // TODO: escape
+                )
+            })
             .collect::<Vec<_>>();
         format!("/executions/?{}", qs.join("&"))
     }
@@ -205,6 +249,38 @@ pub async fn get_executions(
     }
 
     md += &pager_md;
+    md += &format!(
+        r#",
+Update Time: <input type="date" id="start_date" {} onchange="filter_start_date()"> ~
+             <input type="date" id="end_date" {} onchange="filter_end_date()">
+
+<script type="text/javascript">
+function filter_start_date() {{
+  var v = document.getElementById("start_date").value;
+  location.href = "{}&mtime-start=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+<script type="text/javascript">
+function filter_end_date() {{
+  var v = document.getElementById("end_date").value;
+  location.href = "{}&mtime-end=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+"#,
+        if let Some(v) = &query.mtime_start {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        if let Some(v) = &query.mtime_end {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        query.reset_mtime_start().to_url(),
+        query.reset_mtime_end().to_url()
+    );
+
     md += "\n";
     md += &format!(
         "| id{}{} | type | name{}{} | state | update-time{}{} | summary |\n",

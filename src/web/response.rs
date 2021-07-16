@@ -26,5 +26,6 @@ fn md_to_html(md: &str) -> String {
     let mut opt = comrak::ComrakOptions::default();
     opt.extension.table = true;
     opt.extension.autolink = true;
+    opt.render.unsafe_ = true;
     comrak::markdown_to_html(md, &opt)
 }
