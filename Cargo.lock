@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "weih"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "actix-web",
  "anyhow",
