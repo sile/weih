@@ -32,13 +32,14 @@ pub async fn http_server_run(
     };
     HttpServer::new(move || {
         App::new()
-            .data(config.clone())
+            .app_data(actix_web::web::Data::new(config.clone()))
             .service(self::handlers::index::get_index)
             .service(self::handlers::artifact_types::get_artifact_type_summaries)
             .service(self::handlers::artifact_types::get_artifact_type_detail)
             .service(self::handlers::artifacts::get_artifacts)
             .service(self::handlers::artifacts::get_artifact)
             .service(self::handlers::artifacts::get_artifact_content)
+            .service(self::handlers::artifacts::get_artifact_graph)
             .service(self::handlers::execution_types::get_execution_type_summaries)
             .service(self::handlers::execution_types::get_execution_type_detail)
             .service(self::handlers::executions::get_executions)

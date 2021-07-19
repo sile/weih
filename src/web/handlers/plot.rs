@@ -50,6 +50,8 @@ impl PlotHistogramQuery {
             offset: self.offset.clone(),
             order_by: self.order_by.clone(),
             asc: self.asc.clone(),
+            mtime_start: None,
+            mtime_end: None,
         }
     }
 
@@ -277,6 +279,8 @@ impl PlotScatterQuery {
             offset: self.offset.clone(),
             order_by: self.order_by.clone(),
             asc: self.asc.clone(),
+            mtime_start: None,
+            mtime_end: None,
         }
     }
 

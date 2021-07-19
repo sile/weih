@@ -1,8 +1,10 @@
 use crate::hook::GeneralOutput;
 use crate::mlmd::context::{Context, ContextOrderByField};
+use crate::time::DateTime;
 use crate::web::{response, Config};
 use actix_web::{get, web, HttpResponse};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 #[get("/contexts/{id}/contents/{name}")]
 async fn get_context_content(
@@ -34,7 +36,7 @@ async fn get_context_content(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if contexts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such context tyep: {}",
+            "no such context type: {}",
             contexts[0].type_id.get(),
         )));
     }
@@ -49,6 +51,7 @@ async fn get_context_content(
         GeneralOutput::Json(x) => Ok(response::json(&x)),
         GeneralOutput::Markdown(x) => Ok(response::markdown(&x)),
         GeneralOutput::Html(x) => Ok(response::html(&x)),
+        GeneralOutput::Redirect(x) => Ok(response::redirect(&x)),
     }
 }
 
@@ -71,6 +74,10 @@ pub struct GetContextsQuery {
     pub order_by: ContextOrderByField,
     #[serde(default)]
     pub asc: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_start: Option<DateTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_end: Option<DateTime>,
 }
 
 impl GetContextsQuery {
@@ -97,6 +104,24 @@ impl GetContextsQuery {
             }
         }
         request = request.order_by(self.order_by.into(), self.asc);
+
+        match (self.mtime_start, self.mtime_end) {
+            (None, None) => {}
+            (Some(start), None) => {
+                request =
+                    request.update_time(Duration::from_millis(start.timestamp_millis() as u64)..);
+            }
+            (None, Some(end)) => {
+                request =
+                    request.update_time(..Duration::from_millis(end.timestamp_millis() as u64));
+            }
+            (Some(start), Some(end)) => {
+                request = request.update_time(
+                    Duration::from_millis(start.timestamp_millis() as u64)
+                        ..Duration::from_millis(end.timestamp_millis() as u64),
+                );
+            }
+        }
 
         Ok(request.execute().await?)
     }
@@ -133,6 +158,20 @@ impl GetContextsQuery {
         this
     }
 
+    fn reset_mtime_start(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_start = None;
+        this.offset = None;
+        this
+    }
+
+    fn reset_mtime_end(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_end = None;
+        this.offset = None;
+        this
+    }
+
     fn filter_type(&self, type_name: &str) -> Self {
         let mut this = self.clone();
         this.type_name = Some(type_name.to_owned());
@@ -154,7 +193,13 @@ impl GetContextsQuery {
             .as_object()
             .expect("unwrap")
             .into_iter()
-            .map(|(k, v)| format!("{}={}", k, v.to_string().trim_matches('"')))
+            .map(|(k, v)| {
+                format!(
+                    "{}={}",
+                    k,
+                    v.to_string().trim_matches('"').replace('+', "%2B") // TODO: escape
+                )
+            })
             .collect::<Vec<_>>();
         format!("/contexts/?{}", qs.join("&"))
     }
@@ -185,22 +230,55 @@ pub async fn get_contexts(
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let mut md = "# Contexts\n".to_string();
-
+    let mut pager_md = String::new();
     if query.offset() != 0 {
-        md += &format!(" [<<]({})", query.prev().to_url());
+        pager_md += &format!(" [<<]({})", query.prev().to_url());
     } else {
-        md += " <<";
+        pager_md += " <<";
     }
-    md += &format!(
+    pager_md += &format!(
         " {}~{} ",
         query.offset() + 1,
         query.offset() + contexts.len()
     );
     if contexts.len() == query.limit() {
-        md += &format!("[>>]({})", query.next().to_url());
+        pager_md += &format!("[>>]({})", query.next().to_url());
     } else {
-        md += ">>";
+        pager_md += ">>";
     }
+
+    md += &pager_md;
+    md += &format!(
+        r#",
+Update Time: <input type="date" id="start_date" {} onchange="filter_start_date()"> ~
+             <input type="date" id="end_date" {} onchange="filter_end_date()">
+
+<script type="text/javascript">
+function filter_start_date() {{
+  var v = document.getElementById("start_date").value;
+  location.href = "{}&mtime-start=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+<script type="text/javascript">
+function filter_end_date() {{
+  var v = document.getElementById("end_date").value;
+  location.href = "{}&mtime-end=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+"#,
+        if let Some(v) = &query.mtime_start {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        if let Some(v) = &query.mtime_end {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        query.reset_mtime_start().to_url(),
+        query.reset_mtime_end().to_url()
+    );
 
     md += "\n";
     md += &format!(
@@ -281,27 +359,53 @@ pub async fn get_contexts(
         );
     }
 
+    md += &pager_md;
     Ok(response::markdown(&md))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct GetContextQuery {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
 }
 
 #[get("/contexts/{id}")]
 pub async fn get_context(
     config: web::Data<Config>,
-    path: web::Path<(i32,)>,
+    path: web::Path<(String,)>,
+    query: web::Query<GetContextQuery>,
 ) -> actix_web::Result<HttpResponse> {
-    let id = path.0;
+    let id_or_name = &path.0;
     let mut store = config.connect_metadata_store().await?;
 
-    let contexts = store
-        .get_contexts()
-        .id(mlmd::metadata::ContextId::new(id))
-        .execute()
-        .await
-        .map_err(actix_web::error::ErrorInternalServerError)?;
+    let contexts = match id_or_name.parse::<i32>().ok() {
+        Some(id) => store
+            .get_contexts()
+            .id(mlmd::metadata::ContextId::new(id))
+            .execute()
+            .await
+            .map_err(actix_web::error::ErrorInternalServerError)?,
+        None => {
+            let name = id_or_name;
+            if let Some(type_name) = &query.type_name {
+                store
+                    .get_contexts()
+                    .type_and_name(type_name, name)
+                    .execute()
+                    .await
+                    .map_err(actix_web::error::ErrorInternalServerError)?
+            } else {
+                return Err(actix_web::error::ErrorBadRequest(format!(
+                    "`type` query parameter must be specified"
+                )));
+            }
+        }
+    };
     if contexts.is_empty() {
         return Err(actix_web::error::ErrorNotFound(format!(
             "no such context: {}",
-            id
+            id_or_name
         )));
     }
 
@@ -313,7 +417,7 @@ pub async fn get_context(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if contexts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such context tyep: {}",
+            "no such context type: {}",
             contexts[0].type_id.get(),
         )));
     }

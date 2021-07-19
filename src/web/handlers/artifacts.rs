@@ -1,8 +1,10 @@
 use crate::hook::GeneralOutput;
 use crate::mlmd::artifact::{Artifact, ArtifactOrderByField};
+use crate::time::DateTime;
 use crate::web::{response, Config};
 use actix_web::{get, web, HttpResponse};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 #[get("/artifacts/{id}/contents/{name}")]
 async fn get_artifact_content(
@@ -34,7 +36,7 @@ async fn get_artifact_content(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if artifacts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such artifact tyep: {}",
+            "no such artifact type: {}",
             artifacts[0].type_id.get(),
         )));
     }
@@ -49,6 +51,7 @@ async fn get_artifact_content(
         GeneralOutput::Json(x) => Ok(response::json(&x)),
         GeneralOutput::Markdown(x) => Ok(response::markdown(&x)),
         GeneralOutput::Html(x) => Ok(response::html(&x)),
+        GeneralOutput::Redirect(x) => Ok(response::redirect(&x)),
     }
 }
 
@@ -69,6 +72,10 @@ pub struct GetArtifactsQuery {
     pub order_by: ArtifactOrderByField,
     #[serde(default)]
     pub asc: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_start: Option<DateTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_end: Option<DateTime>,
 }
 
 impl GetArtifactsQuery {
@@ -98,6 +105,24 @@ impl GetArtifactsQuery {
             }
         }
         request = request.order_by(self.order_by.into(), self.asc);
+
+        match (self.mtime_start, self.mtime_end) {
+            (None, None) => {}
+            (Some(start), None) => {
+                request =
+                    request.update_time(Duration::from_millis(start.timestamp_millis() as u64)..);
+            }
+            (None, Some(end)) => {
+                request =
+                    request.update_time(..Duration::from_millis(end.timestamp_millis() as u64));
+            }
+            (Some(start), Some(end)) => {
+                request = request.update_time(
+                    Duration::from_millis(start.timestamp_millis() as u64)
+                        ..Duration::from_millis(end.timestamp_millis() as u64),
+                );
+            }
+        }
 
         Ok(request.execute().await?)
     }
@@ -134,6 +159,18 @@ impl GetArtifactsQuery {
         this
     }
 
+    fn reset_mtime_start(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_start = None;
+        this
+    }
+
+    fn reset_mtime_end(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_end = None;
+        this
+    }
+
     fn filter_type(&self, type_name: &str) -> Self {
         let mut this = self.clone();
         this.type_name = Some(type_name.to_owned());
@@ -159,7 +196,13 @@ impl GetArtifactsQuery {
             .as_object()
             .expect("unwrap")
             .into_iter()
-            .map(|(k, v)| format!("{}={}", k, v.to_string().trim_matches('"')))
+            .map(|(k, v)| {
+                format!(
+                    "{}={}",
+                    k,
+                    v.to_string().trim_matches('"').replace('+', "%2B") // TODO: escape
+                )
+            })
             .collect::<Vec<_>>();
         qs.join("&")
     }
@@ -191,25 +234,54 @@ pub async fn get_artifacts(
 
     let mut md = "# Artifacts\n".to_string();
 
+    let mut pager_md = String::new();
     if query.offset() != 0 {
-        md += &format!(" [<<]({})", query.prev().to_url());
+        pager_md += &format!(" [<<]({})", query.prev().to_url());
     } else {
-        md += " <<";
+        pager_md += " <<";
     }
-    md += &format!(
+    pager_md += &format!(
         " {}~{} ",
         query.offset() + 1,
         query.offset() + artifacts.len()
     );
     if artifacts.len() == query.limit() {
-        md += &format!("[>>]({})", query.next().to_url());
+        pager_md += &format!("[>>]({})", query.next().to_url());
     } else {
-        md += ">>";
+        pager_md += ">>";
     }
+    md += &pager_md;
+
     md += &format!(
-        " plot: [histogram](/plot/histogram?{}), [scatter](/plot/scatter?{})\n",
-        query.to_qs(),
-        query.to_qs()
+        r#",
+Update Time: <input type="date" id="start_date" {} onchange="filter_start_date()"> ~
+             <input type="date" id="end_date" {} onchange="filter_end_date()">
+
+<script type="text/javascript">
+function filter_start_date() {{
+  var v = document.getElementById("start_date").value;
+  location.href = "{}&mtime-start=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+<script type="text/javascript">
+function filter_end_date() {{
+  var v = document.getElementById("end_date").value;
+  location.href = "{}&mtime-end=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+"#,
+        if let Some(v) = &query.mtime_start {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        if let Some(v) = &query.mtime_end {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        query.reset_mtime_start().to_url(),
+        query.reset_mtime_end().to_url()
     );
 
     md += "\n";
@@ -292,27 +364,54 @@ pub async fn get_artifacts(
         );
     }
 
+    md += &pager_md;
+
     Ok(response::markdown(&md))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct GetArtifactQuery {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
 }
 
 #[get("/artifacts/{id}")]
 pub async fn get_artifact(
     config: web::Data<Config>,
-    path: web::Path<(i32,)>,
+    path: web::Path<(String,)>,
+    query: web::Query<GetArtifactQuery>,
 ) -> actix_web::Result<HttpResponse> {
-    let id = path.0;
+    let id_or_name = &path.0;
     let mut store = config.connect_metadata_store().await?;
 
-    let artifacts = store
-        .get_artifacts()
-        .id(mlmd::metadata::ArtifactId::new(id))
-        .execute()
-        .await
-        .map_err(actix_web::error::ErrorInternalServerError)?;
+    let artifacts = match id_or_name.parse::<i32>().ok() {
+        Some(id) => store
+            .get_artifacts()
+            .id(mlmd::metadata::ArtifactId::new(id))
+            .execute()
+            .await
+            .map_err(actix_web::error::ErrorInternalServerError)?,
+        None => {
+            let name = id_or_name;
+            if let Some(type_name) = &query.type_name {
+                store
+                    .get_artifacts()
+                    .type_and_name(type_name, name)
+                    .execute()
+                    .await
+                    .map_err(actix_web::error::ErrorInternalServerError)?
+            } else {
+                return Err(actix_web::error::ErrorBadRequest(format!(
+                    "`type` query parameter must be specified"
+                )));
+            }
+        }
+    };
     if artifacts.is_empty() {
         return Err(actix_web::error::ErrorNotFound(format!(
-            "no such artifact: {}",
-            id
+            "no such artifact: {:?}",
+            id_or_name
         )));
     }
 
@@ -324,7 +423,7 @@ pub async fn get_artifact(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if artifacts.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such artifact tyep: {}",
+            "no such artifact type: {}",
             artifacts[0].type_id.get(),
         )));
     }
@@ -398,5 +497,216 @@ pub async fn get_artifact(
         );
     }
 
+    md += &format!("- [**Graph**](/artifacts/{}/graph)\n", artifact.id);
+
     Ok(response::markdown(&md))
+}
+
+#[get("/artifacts/{id}/graph")]
+pub async fn get_artifact_graph(
+    config: web::Data<Config>,
+    path: web::Path<(i32,)>,
+) -> actix_web::Result<HttpResponse> {
+    let id = path.0;
+    let mut store = config.connect_metadata_store().await?;
+
+    let graph = Graph::new(&mut store, id)
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    let svg = std::process::Command::new("dot")
+        .arg("-Tsvg")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .ok()
+        .and_then(|mut child| {
+            use std::io::Write;
+
+            let writer = child.stdin.as_mut()?;
+            graph.render(writer).ok()?;
+            writer.flush().ok()?;
+            let output = child.wait_with_output().ok()?;
+            if !output.status.success() {
+                None
+            } else {
+                Some(output.stdout)
+            }
+        });
+
+    if let Some(svg) = svg {
+        Ok(response::svg(&String::from_utf8(svg).expect("TODO")))
+    } else {
+        let mut buf = Vec::new();
+        graph.render(&mut buf).expect("TODO");
+        Ok(response::markdown(&String::from_utf8(buf).expect("TODO")))
+    }
+}
+
+use crate::web::handlers::executions::{Edge, Node, NodeId};
+
+#[derive(Debug)]
+struct Graph {
+    nodes: Vec<Node>,
+    edges: Vec<Edge>,
+}
+
+impl Graph {
+    async fn new(store: &mut mlmd::MetadataStore, artifact_id: i32) -> anyhow::Result<Self> {
+        let mut nodes = HashMap::new();
+        let mut edges = Vec::new();
+        let mut stack = vec![NodeId::Artifact(artifact_id)];
+        while let Some(curr) = stack.pop() {
+            if nodes.contains_key(&curr) {
+                continue;
+            }
+            let mut curr = match curr {
+                NodeId::Execution(id) => Node::Execution {
+                    node: fetch_execution(store, id).await?,
+                    inputs: 0,
+                    outputs: 0,
+                },
+                NodeId::Artifact(id) => Node::Artifact {
+                    node: fetch_artifact(store, id).await?,
+                    inputs: 0,
+                    outputs: 0,
+                },
+            };
+
+            let events = match &curr {
+                Node::Execution { node, .. } => {
+                    store
+                        .get_events()
+                        .execution(mlmd::metadata::ExecutionId::new(node.id))
+                        .execute()
+                        .await?
+                }
+                Node::Artifact { node, .. } => {
+                    store
+                        .get_events()
+                        .artifact(mlmd::metadata::ArtifactId::new(node.id))
+                        .execute()
+                        .await?
+                }
+            };
+            curr.set_in_out(&events);
+            nodes.insert(curr.id(), curr.clone());
+            anyhow::ensure!(
+                nodes.len() < 100,
+                "Too many executions and artifact to visualize"
+            );
+
+            for event in events {
+                if matches!(curr, Node::Artifact { .. }) {
+                    use mlmd::metadata::EventType::*;
+                    if event.artifact_id.get() == artifact_id
+                        || matches!(event.ty, Output | DeclaredOutput | InternalOutput)
+                    {
+                        let id = NodeId::Execution(event.execution_id.get());
+                        stack.push(id);
+                        if matches!(event.ty, Output | DeclaredOutput | InternalOutput) {
+                            edges.push(Edge {
+                                source: id,
+                                target: curr.id(),
+                                event: event.into(),
+                            });
+                        }
+                    }
+                } else {
+                    use mlmd::metadata::EventType::*;
+                    if matches!(event.ty, Input | DeclaredInput | InternalInput) {
+                        let id = NodeId::Artifact(event.artifact_id.get());
+                        stack.push(id);
+                        edges.push(Edge {
+                            source: id,
+                            target: curr.id(),
+                            event: event.into(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            nodes: nodes.into_iter().map(|x| x.1).collect(),
+            edges,
+        })
+    }
+
+    fn render<W: std::io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
+        writeln!(writer, "digraph execution_graph {{")?;
+
+        for node in &self.nodes {
+            writeln!(writer, "{}[{}]", node.id(), node.attrs().join(","))?;
+        }
+
+        for edge in &self.edges {
+            writeln!(
+                writer,
+                "{} -> {} [label={:?}];",
+                edge.source,
+                edge.target,
+                format!("{:?}:{:?}", edge.event.ty, edge.event.path)
+            )?;
+        }
+
+        writeln!(writer, "}}")?;
+        Ok(())
+    }
+}
+
+async fn fetch_execution(
+    store: &mut mlmd::MetadataStore,
+    id: i32,
+) -> anyhow::Result<crate::mlmd::execution::Execution> {
+    let executions = store
+        .get_executions()
+        .id(mlmd::metadata::ExecutionId::new(id))
+        .execute()
+        .await?;
+    anyhow::ensure!(!executions.is_empty(), "no such execution: {}", id);
+
+    let types = store
+        .get_execution_types()
+        .id(executions[0].type_id)
+        .execute()
+        .await?;
+    anyhow::ensure!(
+        !executions.is_empty(),
+        "no such execution tyep: {}",
+        executions[0].type_id.get()
+    );
+
+    Ok(crate::mlmd::execution::Execution::from((
+        types[0].clone(),
+        executions[0].clone(),
+    )))
+}
+
+async fn fetch_artifact(
+    store: &mut mlmd::MetadataStore,
+    id: i32,
+) -> anyhow::Result<crate::mlmd::artifact::Artifact> {
+    let artifacts = store
+        .get_artifacts()
+        .id(mlmd::metadata::ArtifactId::new(id))
+        .execute()
+        .await?;
+    anyhow::ensure!(!artifacts.is_empty(), "no such artifact: {}", id);
+
+    let types = store
+        .get_artifact_types()
+        .id(artifacts[0].type_id)
+        .execute()
+        .await?;
+    anyhow::ensure!(
+        !artifacts.is_empty(),
+        "no such artifact tyep: {}",
+        artifacts[0].type_id.get()
+    );
+
+    Ok(crate::mlmd::artifact::Artifact::from((
+        types[0].clone(),
+        artifacts[0].clone(),
+    )))
 }

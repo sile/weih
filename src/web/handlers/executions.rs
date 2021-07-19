@@ -1,8 +1,10 @@
 use crate::hook::GeneralOutput;
 use crate::mlmd::execution::{Execution, ExecutionOrderByField};
+use crate::time::DateTime;
 use crate::web::{response, Config};
 use actix_web::{get, web, HttpResponse};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 #[get("/executions/{id}/contents/{name}")]
 async fn get_execution_content(
@@ -34,7 +36,7 @@ async fn get_execution_content(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if executions.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such execution tyep: {}",
+            "no such execution type: {}",
             executions[0].type_id.get(),
         )));
     }
@@ -49,6 +51,7 @@ async fn get_execution_content(
         GeneralOutput::Json(x) => Ok(response::json(&x)),
         GeneralOutput::Markdown(x) => Ok(response::markdown(&x)),
         GeneralOutput::Html(x) => Ok(response::html(&x)),
+        GeneralOutput::Redirect(x) => Ok(response::redirect(&x)),
     }
 }
 
@@ -69,6 +72,10 @@ pub struct GetExecutionsQuery {
     pub order_by: ExecutionOrderByField,
     #[serde(default)]
     pub asc: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_start: Option<DateTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime_end: Option<DateTime>,
 }
 
 impl GetExecutionsQuery {
@@ -98,6 +105,24 @@ impl GetExecutionsQuery {
             }
         }
         request = request.order_by(self.order_by.into(), self.asc);
+
+        match (self.mtime_start, self.mtime_end) {
+            (None, None) => {}
+            (Some(start), None) => {
+                request =
+                    request.update_time(Duration::from_millis(start.timestamp_millis() as u64)..);
+            }
+            (None, Some(end)) => {
+                request =
+                    request.update_time(..Duration::from_millis(end.timestamp_millis() as u64));
+            }
+            (Some(start), Some(end)) => {
+                request = request.update_time(
+                    Duration::from_millis(start.timestamp_millis() as u64)
+                        ..Duration::from_millis(end.timestamp_millis() as u64),
+                );
+            }
+        }
 
         Ok(request.execute().await?)
     }
@@ -134,6 +159,20 @@ impl GetExecutionsQuery {
         this
     }
 
+    fn reset_mtime_start(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_start = None;
+        this.offset = None;
+        this
+    }
+
+    fn reset_mtime_end(&self) -> Self {
+        let mut this = self.clone();
+        this.mtime_end = None;
+        this.offset = None;
+        this
+    }
+
     fn filter_type(&self, type_name: &str) -> Self {
         let mut this = self.clone();
         this.type_name = Some(type_name.to_owned());
@@ -155,7 +194,13 @@ impl GetExecutionsQuery {
             .as_object()
             .expect("unwrap")
             .into_iter()
-            .map(|(k, v)| format!("{}={}", k, v.to_string().trim_matches('"')))
+            .map(|(k, v)| {
+                format!(
+                    "{}={}",
+                    k,
+                    v.to_string().trim_matches('"').replace('+', "%2B") // TODO: escape
+                )
+            })
             .collect::<Vec<_>>();
         format!("/executions/?{}", qs.join("&"))
     }
@@ -186,22 +231,55 @@ pub async fn get_executions(
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
     let mut md = "# Executions\n".to_string();
-
+    let mut pager_md = String::new();
     if query.offset() != 0 {
-        md += &format!(" [<<]({})", query.prev().to_url());
+        pager_md += &format!(" [<<]({})", query.prev().to_url());
     } else {
-        md += " <<";
+        pager_md += " <<";
     }
-    md += &format!(
+    pager_md += &format!(
         " {}~{} ",
         query.offset() + 1,
         query.offset() + executions.len()
     );
     if executions.len() == query.limit() {
-        md += &format!("[>>]({})", query.next().to_url());
+        pager_md += &format!("[>>]({})", query.next().to_url());
     } else {
-        md += ">>";
+        pager_md += ">>";
     }
+
+    md += &pager_md;
+    md += &format!(
+        r#",
+Update Time: <input type="date" id="start_date" {} onchange="filter_start_date()"> ~
+             <input type="date" id="end_date" {} onchange="filter_end_date()">
+
+<script type="text/javascript">
+function filter_start_date() {{
+  var v = document.getElementById("start_date").value;
+  location.href = "{}&mtime-start=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+<script type="text/javascript">
+function filter_end_date() {{
+  var v = document.getElementById("end_date").value;
+  location.href = "{}&mtime-end=" + v + "T00:00:00%2B09:00";
+}}
+</script>
+"#,
+        if let Some(v) = &query.mtime_start {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        if let Some(v) = &query.mtime_end {
+            format!("value={:?}", v.format("%Y-%m-%d").to_string())
+        } else {
+            "".to_owned()
+        },
+        query.reset_mtime_start().to_url(),
+        query.reset_mtime_end().to_url()
+    );
 
     md += "\n";
     md += &format!(
@@ -283,27 +361,53 @@ pub async fn get_executions(
         );
     }
 
+    md += &pager_md;
     Ok(response::markdown(&md))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct GetExecutionQuery {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
 }
 
 #[get("/executions/{id}")]
 pub async fn get_execution(
     config: web::Data<Config>,
-    path: web::Path<(i32,)>,
+    path: web::Path<(String,)>,
+    query: web::Query<GetExecutionQuery>,
 ) -> actix_web::Result<HttpResponse> {
-    let id = path.0;
+    let id_or_name = &path.0;
     let mut store = config.connect_metadata_store().await?;
 
-    let executions = store
-        .get_executions()
-        .id(mlmd::metadata::ExecutionId::new(id))
-        .execute()
-        .await
-        .map_err(actix_web::error::ErrorInternalServerError)?;
+    let executions = match id_or_name.parse::<i32>().ok() {
+        Some(id) => store
+            .get_executions()
+            .id(mlmd::metadata::ExecutionId::new(id))
+            .execute()
+            .await
+            .map_err(actix_web::error::ErrorInternalServerError)?,
+        None => {
+            let name = id_or_name;
+            if let Some(type_name) = &query.type_name {
+                store
+                    .get_executions()
+                    .type_and_name(type_name, name)
+                    .execute()
+                    .await
+                    .map_err(actix_web::error::ErrorInternalServerError)?
+            } else {
+                return Err(actix_web::error::ErrorBadRequest(format!(
+                    "`type` query parameter must be specified"
+                )));
+            }
+        }
+    };
     if executions.is_empty() {
         return Err(actix_web::error::ErrorNotFound(format!(
             "no such execution: {}",
-            id
+            id_or_name
         )));
     }
 
@@ -315,7 +419,7 @@ pub async fn get_execution(
         .map_err(actix_web::error::ErrorInternalServerError)?;
     if executions.is_empty() {
         return Err(actix_web::error::ErrorInternalServerError(format!(
-            "no such execution tyep: {}",
+            "no such execution type: {}",
             executions[0].type_id.get(),
         )));
     }
@@ -427,7 +531,7 @@ pub async fn get_execution_graph(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum NodeId {
+pub enum NodeId {
     Execution(i32),
     Artifact(i32),
 }
@@ -442,41 +546,95 @@ impl std::fmt::Display for NodeId {
 }
 
 #[derive(Debug, Clone)]
-enum Node {
-    Execution(Execution),
-    Artifact(crate::mlmd::artifact::Artifact),
+pub enum Node {
+    Execution {
+        node: Execution,
+        inputs: usize,
+        outputs: usize,
+    },
+    Artifact {
+        node: crate::mlmd::artifact::Artifact,
+        inputs: usize,
+        outputs: usize,
+    },
 }
 
 impl Node {
-    fn id(&self) -> NodeId {
+    pub fn id(&self) -> NodeId {
         match self {
-            Self::Execution(x) => NodeId::Execution(x.id),
-            Self::Artifact(x) => NodeId::Artifact(x.id),
+            Self::Execution { node, .. } => NodeId::Execution(node.id),
+            Self::Artifact { node, .. } => NodeId::Artifact(node.id),
         }
     }
 
-    fn label(&self) -> String {
+    pub fn set_in_out(&mut self, events: &[mlmd::metadata::Event]) {
+        use mlmd::metadata::EventType::*;
+
+        let mut n_input = 0;
+        let mut n_output = 0;
+        for event in events {
+            match event.ty {
+                Input | DeclaredInput | InternalInput => {
+                    n_input += 1;
+                }
+                Output | DeclaredOutput | InternalOutput => {
+                    n_output += 1;
+                }
+                _ => {}
+            }
+        }
         match self {
-            Self::Execution(x) => format!("{}@{}", x.id, x.type_name),
-            Self::Artifact(x) => format!("{}@{}", x.id, x.type_name),
+            Self::Execution {
+                inputs, outputs, ..
+            } => {
+                *inputs = n_input;
+                *outputs = n_output;
+            }
+            Self::Artifact {
+                inputs, outputs, ..
+            } => {
+                *inputs = n_input;
+                *outputs = n_output;
+            }
         }
     }
 
-    fn url(&self) -> String {
+    pub fn label(&self) -> String {
         match self {
-            Self::Execution(x) => format!("/executions/{}", x.id),
-            Self::Artifact(x) => format!("/artifacts/{}", x.id),
+            Self::Execution {
+                node,
+                inputs,
+                outputs,
+            } => format!(
+                "{}\n{}\nin={},out={}",
+                node.id, node.type_name, inputs, outputs
+            ),
+            Self::Artifact {
+                node,
+                inputs,
+                outputs,
+            } => format!(
+                "{}\n{}\nin={},out={}",
+                node.id, node.type_name, inputs, outputs
+            ),
         }
     }
 
-    fn shape(&self) -> String {
+    pub fn url(&self) -> String {
         match self {
-            Self::Execution(_) => format!("box"),
-            Self::Artifact(_) => format!("ellipse"),
+            Self::Execution { node, .. } => format!("/executions/{}", node.id),
+            Self::Artifact { node, .. } => format!("/artifacts/{}", node.id),
         }
     }
 
-    fn attrs(&self) -> Vec<String> {
+    pub fn shape(&self) -> String {
+        match self {
+            Self::Execution { .. } => format!("box"),
+            Self::Artifact { .. } => format!("ellipse"),
+        }
+    }
+
+    pub fn attrs(&self) -> Vec<String> {
         vec![
             format!("label={:?}", self.label()),
             format!("shape={:?}", self.shape()),
@@ -486,10 +644,10 @@ impl Node {
 }
 
 #[derive(Debug, Clone)]
-struct Edge {
-    source: Node,
-    target: Node,
-    event: crate::mlmd::event::Event,
+pub struct Edge {
+    pub source: NodeId,
+    pub target: NodeId,
+    pub event: crate::mlmd::event::Event,
 }
 
 #[derive(Debug)]
@@ -501,48 +659,82 @@ struct Graph {
 impl Graph {
     async fn new(store: &mut mlmd::MetadataStore, execution_id: i32) -> anyhow::Result<Self> {
         let mut nodes = HashMap::new();
+        let mut edges = Vec::new();
         let mut stack = vec![NodeId::Execution(execution_id)];
         while let Some(curr) = stack.pop() {
             if nodes.contains_key(&curr) {
                 continue;
             }
-            let curr = match curr {
-                NodeId::Execution(id) => Node::Execution(fetch_execution(store, id).await?),
-                NodeId::Artifact(id) => Node::Artifact(fetch_artifact(store, id).await?),
+            let mut curr = match curr {
+                NodeId::Execution(id) => Node::Execution {
+                    node: fetch_execution(store, id).await?,
+                    inputs: 0,
+                    outputs: 0,
+                },
+                NodeId::Artifact(id) => Node::Artifact {
+                    node: fetch_artifact(store, id).await?,
+                    inputs: 0,
+                    outputs: 0,
+                },
             };
+
+            let events = match &curr {
+                Node::Execution { node, .. } => {
+                    store
+                        .get_events()
+                        .execution(mlmd::metadata::ExecutionId::new(node.id))
+                        .execute()
+                        .await?
+                }
+                Node::Artifact { node, .. } => {
+                    store
+                        .get_events()
+                        .artifact(mlmd::metadata::ArtifactId::new(node.id))
+                        .execute()
+                        .await?
+                }
+            };
+            curr.set_in_out(&events);
             nodes.insert(curr.id(), curr.clone());
             anyhow::ensure!(
                 nodes.len() < 100,
                 "Too many executions and artifact to visualize"
             );
 
-            let events = match curr {
-                Node::Execution(x) => {
-                    store
-                        .get_events()
-                        .execution(mlmd::metadata::ExecutionId::new(x.id))
-                        .execute()
-                        .await?
-                }
-                Node::Artifact(x) => {
-                    store
-                        .get_events()
-                        .artifact(mlmd::metadata::ArtifactId::new(x.id))
-                        .execute()
-                        .await?
-                }
-            };
-
             for event in events {
-                stack.push(NodeId::Execution(event.execution_id.get()));
-                stack.push(NodeId::Artifact(event.artifact_id.get()));
-                // TODO: edges
+                if matches!(curr, Node::Artifact { .. }) {
+                    use mlmd::metadata::EventType::*;
+                    if matches!(event.ty, Output | DeclaredOutput | InternalOutput) {
+                        let id = NodeId::Execution(event.execution_id.get());
+                        stack.push(id);
+                        edges.push(Edge {
+                            source: id,
+                            target: curr.id(),
+                            event: event.into(),
+                        });
+                    }
+                } else {
+                    use mlmd::metadata::EventType::*;
+                    if event.execution_id.get() == execution_id
+                        || matches!(event.ty, Input | DeclaredInput | InternalInput)
+                    {
+                        let id = NodeId::Artifact(event.artifact_id.get());
+                        stack.push(id);
+                        if matches!(event.ty, Input | DeclaredInput | InternalInput) {
+                            edges.push(Edge {
+                                source: id,
+                                target: curr.id(),
+                                event: event.into(),
+                            });
+                        }
+                    }
+                }
             }
         }
 
         Ok(Self {
             nodes: nodes.into_iter().map(|x| x.1).collect(),
-            edges: Vec::new(),
+            edges,
         })
     }
 
@@ -551,6 +743,16 @@ impl Graph {
 
         for node in &self.nodes {
             writeln!(writer, "{}[{}]", node.id(), node.attrs().join(","))?;
+        }
+
+        for edge in &self.edges {
+            writeln!(
+                writer,
+                "{} -> {} [label={:?}];",
+                edge.source,
+                edge.target,
+                format!("{:?}:{:?}", edge.event.ty, edge.event.path)
+            )?;
         }
 
         writeln!(writer, "}}")?;

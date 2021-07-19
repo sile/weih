@@ -470,4 +470,5 @@ pub enum GeneralOutput {
     Json(String),
     Markdown(String),
     Html(String),
+    Redirect(String),
 }
