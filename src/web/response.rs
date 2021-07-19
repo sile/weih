@@ -1,7 +1,17 @@
 use actix_web::HttpResponse;
 
 pub fn markdown(md: &str) -> HttpResponse {
-    html(&md_to_html(&md))
+    let md = format!(
+        "<link href='/css/github-markdown.css' rel='stylesheet' /><article class='markdown-body'>{}</article>",
+        md_to_html(md)
+    );
+    html(&md)
+}
+
+pub fn css(s: &str) -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/css")
+        .body(s.to_string())
 }
 
 pub fn html(s: &str) -> HttpResponse {

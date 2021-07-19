@@ -359,6 +359,7 @@ function filter_end_date() {{
         );
     }
 
+    md += "\n";
     md += &pager_md;
     Ok(response::markdown(&md))
 }

@@ -34,6 +34,7 @@ pub async fn http_server_run(
         App::new()
             .app_data(actix_web::web::Data::new(config.clone()))
             .service(self::handlers::index::get_index)
+            .service(self::handlers::css::get_github_markdown_css)
             .service(self::handlers::artifact_types::get_artifact_type_summaries)
             .service(self::handlers::artifact_types::get_artifact_type_detail)
             .service(self::handlers::artifacts::get_artifacts)
